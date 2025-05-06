@@ -8,6 +8,10 @@ pub fn print_skipping(path: &Path) {
     println!("Skipping {}: directory already exists", path.display());
 }
 
+pub fn print_info(message: &str) {
+    println!("{}", message);
+}
+
 pub fn print_summary(total: usize, cloned: usize, skipped: usize) {
     println!("\nSummary:");
     println!("Total repositories: {}", total);

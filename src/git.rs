@@ -3,6 +3,7 @@ use git2::Repository;
 use std::path::Path;
 use std::process::Command;
 use crate::output;
+use std::fs;
 
 pub struct GitHandler;
 
@@ -37,6 +38,15 @@ impl GitHandler {
             anyhow::bail!("Git clone failed: {}", error);
         }
 
+        Ok(())
+    }
+
+    pub fn remove_git_directory(&self, path: &Path) -> Result<()> {
+        let git_dir = path.join(".git");
+        if git_dir.exists() {
+            output::print_info(&format!("Removing .git directory from {}", path.display()));
+            fs::remove_dir_all(git_dir).with_context(|| format!("Failed to remove .git directory from {}", path.display()))?;
+        }
         Ok(())
     }
 

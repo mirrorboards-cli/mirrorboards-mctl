@@ -20,6 +20,12 @@ pub fn sync_repositories(config: Config) -> Result<()> {
         }
 
         git_handler.clone_repository(&repo.origin, &path)?;
+        
+        // If git flag is false, remove the .git directory
+        if !repo.git {
+            git_handler.remove_git_directory(&path)?;
+        }
+        
         cloned += 1;
     }
 

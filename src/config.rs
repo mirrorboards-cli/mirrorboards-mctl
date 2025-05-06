@@ -11,6 +11,12 @@ pub struct Config {
 pub struct Repository {
     pub path: String,
     pub origin: String,
+    #[serde(default = "default_git_value")]
+    pub git: bool,
+}
+
+fn default_git_value() -> bool {
+    true
 }
 
 impl Config {
