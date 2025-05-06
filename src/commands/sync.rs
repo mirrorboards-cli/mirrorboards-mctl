@@ -4,6 +4,8 @@ use crate::output;
 use anyhow::Result;
 use std::path::PathBuf;
 
+/// Synchronizes repositories defined in the configuration
+/// Clones missing repositories with submodules and updates submodules in existing repositories
 pub fn sync_repositories(config: Config) -> Result<()> {
     let git_handler = GitHandler::new();
     let mut cloned = 0;
@@ -14,6 +16,10 @@ pub fn sync_repositories(config: Config) -> Result<()> {
         let path = PathBuf::from(&repo.path);
         
         if GitHandler::repository_exists(&path) {
+            // Repository exists, but we should update its submodules
+            if repo.git {
+                git_handler.update_submodules(&path)?;
+            }
             output::print_skipping(&path);
             skipped += 1;
             continue;

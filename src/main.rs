@@ -15,7 +15,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Sync repositories defined in mirror.toml
+    /// Sync repositories defined in mirror.toml with submodule support
+    /// Clones repositories with their submodules and updates submodules in existing repositories
     Sync,
 }
 

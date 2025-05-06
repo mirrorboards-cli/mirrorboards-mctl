@@ -28,6 +28,7 @@ impl GitHandler {
         // Use system git command which will use system's SSH configuration
         let output = Command::new("git")
             .arg("clone")
+            .arg("--recurse-submodules")  // Clone with submodules
             .arg(url)
             .arg(path)
             .output()
@@ -59,5 +60,31 @@ impl GitHandler {
             Ok(_) => true,
             Err(_) => false,
         }
+    }
+
+    pub fn update_submodules(&self, path: &Path) -> Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        output::print_info(&format!("Updating submodules in {}", path.display()));
+
+        // Initialize and update submodules
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .output()
+            .with_context(|| format!("Failed to update submodules in {}", path.display()))?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Submodule update failed: {}", error);
+        }
+
+        Ok(())
     }
 }
