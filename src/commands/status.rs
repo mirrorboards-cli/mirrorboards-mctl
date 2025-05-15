@@ -8,7 +8,7 @@ use std::process::Command;
 /// Checks the status of all repositories defined in the configuration
 /// Only displays status for repositories with changes
 pub fn check_status(config: Config) -> Result<()> {
-    let git_handler = GitHandler::new();
+    let _git_handler = GitHandler::new(); // Prefix with underscore to indicate it's intentionally unused
     let mut with_changes = 0;
     let mut clean = 0;
     let total = config.repositories.len();

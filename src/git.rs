@@ -87,4 +87,133 @@ impl GitHandler {
 
         Ok(())
     }
+    
+    /// Checks if a repository has any uncommitted changes
+    pub fn has_changes(&self, path: &Path) -> Result<bool> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("status")
+            .arg("--porcelain")
+            .output()
+            .with_context(|| format!("Failed to check status in {}", path.display()))?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Git status check failed: {}", error);
+        }
+
+        // If output is not empty, there are changes
+        Ok(!output.stdout.is_empty())
+    }
+    
+    /// Commits all changes in a repository with the specified message
+    pub fn commit_changes(&self, path: &Path, message: &str) -> Result<()> {
+        // Stage all changes
+        let stage_output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("add")
+            .arg("--all")
+            .output()
+            .with_context(|| format!("Failed to stage changes in {}", path.display()))?;
+            
+        if !stage_output.status.success() {
+            let error = String::from_utf8_lossy(&stage_output.stderr);
+            anyhow::bail!("Git add failed: {}", error);
+        }
+        
+        // Commit changes
+        let commit_output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("commit")
+            .arg("-m")
+            .arg(message)
+            .output()
+            .with_context(|| format!("Failed to commit changes in {}", path.display()))?;
+            
+        if !commit_output.status.success() {
+            let error = String::from_utf8_lossy(&commit_output.stderr);
+            // Don't treat "nothing to commit" as an error
+            if error.contains("nothing to commit") {
+                return Ok(());
+            }
+            anyhow::bail!("Git commit failed: {}", error);
+        }
+        
+        Ok(())
+    }
+    
+    /// Pushes committed changes to the remote repository
+    pub fn push_changes(&self, path: &Path) -> Result<()> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("push")
+            .output()
+            .with_context(|| format!("Failed to push changes in {}", path.display()))?;
+            
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Git push failed: {}", error);
+        }
+        
+        Ok(())
+    }
+    
+    /// Gets the origin URL of a repository
+    pub fn get_origin_url(&self, path: &Path) -> Result<String> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("remote")
+            .arg("get-url")
+            .arg("origin")
+            .output()
+            .with_context(|| format!("Failed to get origin URL for {}", path.display()))?;
+            
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to get origin URL: {}", error);
+        }
+        
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(url)
+    }
+    
+    /// Extracts repository name from a Git URL
+    /// For example: "git@github.com:org/repo.git" -> "org/repo"
+    pub fn extract_repo_name_from_url(&self, url: &str) -> String {
+        // For SSH URLs like git@github.com:org/repo.git
+        if url.contains('@') && url.contains(':') {
+            let parts: Vec<&str> = url.split(':').collect();
+            if parts.len() > 1 {
+                let repo_part = parts[1];
+                return repo_part.trim_end_matches(".git").to_string();
+            }
+        }
+        
+        // For HTTPS URLs like https://github.com/org/repo.git
+        if url.contains("://") {
+            let parts: Vec<&str> = url.split('/').collect();
+            if parts.len() >= 3 {
+                let org_idx = parts.len() - 2;
+                let repo_idx = parts.len() - 1;
+                
+                let org = parts[org_idx];
+                let mut repo = parts[repo_idx].to_string();
+                
+                // Remove .git suffix if present
+                if repo.ends_with(".git") {
+                    repo = repo.trim_end_matches(".git").to_string();
+                }
+                
+                return format!("{}/{}", org, repo);
+            }
+        }
+        
+        // If we can't parse it, return a placeholder
+        String::from("unknown-repo")
+    }
 }

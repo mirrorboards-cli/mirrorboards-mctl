@@ -22,6 +22,14 @@ enum Commands {
     /// Check git status of all repositories and only show those with changes
     #[command(name = "status")]
     Status,
+    
+    /// Save (commit and push) changes in all repositories
+    #[command(name = "save")]
+    Save {
+        /// Optional commit message (if not provided, one will be generated)
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -64,7 +72,8 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Commands::Sync => commands::sync::sync_repositories(config),
-        Commands::Status => commands::status::check_status(config),
+        Commands::Sync => commands::sync_repositories(config),
+        Commands::Status => commands::check_status(config),
+        Commands::Save { message } => commands::save_repositories(config, message),
     }
 }
