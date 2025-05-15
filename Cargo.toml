@@ -1,0 +1,56 @@
+[package]
+name = "mctl"
+version = "0.1.0"
+edition = "2021"
+description = "Multiple repository management tool"
+authors = ["MCTL Contributors"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/example/mctl"
+
+[dependencies]
+# Core utilities
+anyhow = "1.0"           # Error handling
+thiserror = "1.0"        # Error definitions
+clap = { version = "4.4", features = ["derive"] }  # Command-line argument parsing
+serde = { version = "1.0", features = ["derive"] } # Serialization/deserialization
+toml = "0.8"             # TOML parsing
+serde_json = "1.0"       # JSON serialization/deserialization
+atty = "0.2"             # Terminal detection
+dirs = "5.0"             # Standard directories
+home = "0.5"             # Home directory detection
+log = "0.4"              # Logging facade
+env_logger = "0.10"      # Logger implementation
+chrono = { version = "0.4", features = ["serde"] } # Date/time utilities
+
+# Async utilities
+tokio = { version = "1.36", features = ["full"] }  # Async runtime
+async-trait = "0.1"      # Async trait support
+futures = "0.3"          # Future utilities
+
+# Concurrency and parallelism
+num_cpus = "1.16"        # CPU core detection for thread pool sizing
+
+# Git integration
+git2 = { version = "0.18", features = ["ssh", "ssh_key_from_memory"] } # Git operations
+tempfile = "3.9"         # Temporary file handling (for tests)
+
+# User interface
+colored = "2.1"          # Terminal colors
+indicatif = "0.17"       # Progress bars
+dialoguer = "0.11"       # Interactive CLI dialogs
+
+[dev-dependencies]
+assert_cmd = "2.0"       # Testing command-line applications
+predicates = "3.0"       # Assertion predicates for tests
+mockall = "0.12"         # Mocking framework
+
+[profile.release]
+lto = true               # Link-time optimization
+codegen-units = 1        # Optimize for size
+opt-level = 3            # Maximum optimization
+panic = 'abort'          # Abort on panic (smaller binary)
+strip = true             # Strip symbols
+
+[profile.dev.package."*"]
+opt-level = 1            # Optimize dependencies in dev builds
