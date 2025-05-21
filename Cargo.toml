@@ -1,0 +1,13 @@
+[package]
+name = "mctl"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI tool to synchronize mirror repositories from git to local computer"
+authors = ["Your Name <your.email@example.com>"]
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+log = "0.4"
+simple_logger = "4.2"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

@@ -1,0 +1,8 @@
+[[repositories]]
+origin = "https://github.com/rust-lang/rust-analyzer.git"
+path = "rust-analyzer"
+
+[[repositories]]
+origin = "https://github.com/rust-lang/cargo.git"
+path = "cargo"
+branch = "master"
