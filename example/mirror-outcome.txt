@@ -1,47 +1,30 @@
-.
-├── bin
-│   └── gcloud
-├── estateboards
-│   └── whitepapers
-├── mirror.toml
-├── mirrorboards
-│   ├── mirrorboards-fish-functions
-│   ├── mirrorboards-graphene-rs
-│   ├── mirrorboards-mctl
-│   ├── mirrorboards-mctl-v2
-│   ├── mirrorboards-mctl-v3
-│   ├── mirrorboards-pulumi-utils
-│   ├── mirrorboards-roo-flow
-│   ├── mirrorboards-roo-modes
-│   └── mirrorboards-roo-sparc
-├── pay2exchange
-│   ├── pay2exchange-core
-│   ├── pay2exchange-ees
-│   ├── pay2exchange-fast-compiling
-│   ├── pay2exchange-genesis
-│   ├── pay2exchange-js
-│   ├── pay2exchange-js-ws
-│   ├── pay2exchange-portal
-│   ├── pay2exchange-report
-│   └── pay2exchange-smart-contract
-├── pay2vault
-│   ├── pay2vault-api
-│   ├── pay2vault-api-next
-│   ├── pay2vault-api-proto
-│   ├── pay2vault-mobile
-│   ├── pay2vault-notes
-│   └── pay2vault-web
-├── pay2vault-vibe
-│   ├── genesis-gen
-│   ├── graphene-rs
-│   └── mirrorboards-genesis-gen
-├── platform
-│   ├── platform-mirrorboards
-│   ├── platform-pay2exchange
-│   └── platform-pay2vault
-└── x-github-mirror
-    ├── bitshares
-    ├── chainlink
-    ├── graphene-rs
-    ├── pulumi
-    └── R-Squared-Project
+# MCTL Synchronization Report
+# Generated on 2025-05-21 11:07:12
+
+## Repository: local/path/to/repo1
+- Source: https://github.com/example/repo1.git
+- Branch: main
+- Status: Successfully synchronized
+- Last commit: a1b2c3d4 "Update documentation" by John Doe <john@example.com>
+- Changes: 3 files changed, 45 insertions(+), 12 deletions(-)
+
+## Repository: local/path/to/repo2
+- Source: https://github.com/example/repo2.git
+- Branch: master (default)
+- Status: Successfully synchronized
+- Last commit: e5f6g7h8 "Fix bug in authentication module" by Jane Smith <jane@example.com>
+- Changes: 2 files changed, 17 insertions(+), 5 deletions(-)
+
+## Repository: local/path/to/repo3
+- Source: https://github.com/example/repo3.git
+- Branch: develop
+- Status: Successfully synchronized
+- Last commit: i9j0k1l2 "Add new feature" by Alex Johnson <alex@example.com>
+- Changes: 7 files changed, 120 insertions(+), 35 deletions(-)
+
+## Summary
+- Total repositories: 3
+- Successfully synchronized: 3
+- Failed: 0
+- Total changes: 12 files changed, 182 insertions(+), 52 deletions(-)
+- Duration: 45.2 seconds
