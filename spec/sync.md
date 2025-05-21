@@ -14,6 +14,8 @@
 - [Related Commands](#related-commands)
 - [Best Practices](#best-practices)
 - [Security Considerations](#security-considerations)
+- [Performance Considerations](#performance-considerations)
+- [Configuration Example](#configuration-example)
 
 ## Overview
 
@@ -43,6 +45,7 @@ mctl sync [options]
 | `--verbose` | Enable verbose output with detailed progress information |
 | `--no-pull` | Skip pulling updates for existing repositories (clone-only mode) |
 | `--force` | Attempt to pull changes even if it might cause conflicts (use with caution) |
+| `--parallel <num>` | Clone or pull multiple repositories in parallel (default: sequential processing) |
 
 ## Examples
 
@@ -97,6 +100,12 @@ Example output:
 [INFO] Checking repository: third-repo
 [INFO] Repository already exists at ./repos/third-repo, skipping (--no-pull flag)
 [INFO] Synchronization complete: 1 repository cloned, 0 updated, 2 skipped
+```
+
+### Parallel Processing for Faster Synchronization
+
+```bash
+mctl sync --parallel 4
 ```
 
 ## Behavior
@@ -156,6 +165,18 @@ export GIT_PASSWORD=your-token
 mctl sync
 ```
 
+## Environment Variables
+
+The following environment variables affect the `sync` command behavior:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `GIT_USERNAME` | Username for HTTPS authentication | `export GIT_USERNAME=your-username` |
+| `GIT_PASSWORD` | Password or token for HTTPS authentication | `export GIT_PASSWORD=your-token` |
+| `GIT_SSL_NO_VERIFY` | Disable SSL verification (not recommended) | `export GIT_SSL_NO_VERIFY=1` |
+| `MCTL_CONFIG_PATH` | Default configuration file path | `export MCTL_CONFIG_PATH=/path/to/config.toml` |
+| `MCTL_LOG_LEVEL` | Control verbosity (debug, info, warn, error) | `export MCTL_LOG_LEVEL=debug` |
+
 ## Troubleshooting
 
 | Issue | Possible Cause | Solution |
@@ -207,6 +228,7 @@ cd <repository-path> && git remote -v
 5. **Clean Repositories**: Commit or stash local changes before running sync to avoid conflicts
 6. **Separate Updates**: Use `--no-pull` when you only want to clone new repositories without updating existing ones
 7. **Troubleshooting**: Use `--verbose` when encountering issues to see detailed operation output
+8. **Parallel Processing**: For large numbers of repositories, use the `--parallel` option to speed up synchronization
 
 ## Security Considerations
 
@@ -215,6 +237,7 @@ cd <repository-path> && git remote -v
 3. **SSH Keys**: Use SSH keys with passphrases for enhanced security
 4. **Private Repositories**: Ensure secure access control for private repository contents
 5. **Audit**: Regularly review your mirroring setup and access patterns
+6. **Credential Rotation**: Regularly rotate access tokens and update SSH keys
 
 ```bash
 # Recommended: Using SSH keys with limited scope
@@ -222,3 +245,46 @@ git@github.com:username/repo.git
 
 # Not recommended: Hardcoded credentials in URLs
 https://username:password@github.com/username/repo.git
+```
+
+## Performance Considerations
+
+When synchronizing multiple repositories, especially large ones, consider the following:
+
+1. **Parallel Processing**: Use the `--parallel` option to clone/update multiple repositories simultaneously
+2. **Disk Space**: Ensure sufficient disk space for all repositories, including their full history
+3. **Network Bandwidth**: Large repositories require significant bandwidth, particularly during initial cloning
+4. **Shallow Clones**: For specific use cases where full history isn't needed, consider configuring shallow clones
+5. **Selective Syncing**: Consider splitting large mirror.toml files into smaller ones to sync only what's needed
+
+## Configuration Example
+
+Here's an example `mirror.toml` file used by the `sync` command:
+
+```toml
+# mirror.toml - Configuration for mctl repository synchronization
+
+# Global settings
+base_path = "./repos"  # Base directory for all repositories
+
+# Repository definitions
+[[repositories]]
+name = "example-repo"
+origin = "git@github.com:example/repo.git"
+path = "example-repo"  # Will be cloned to ./repos/example-repo
+branch = "main"        # Use main branch
+
+[[repositories]]
+name = "documentation"
+origin = "https://github.com/example/docs.git"
+path = "docs"          # Will be cloned to ./repos/docs
+branch = "develop"     # Use develop branch
+
+[[repositories]]
+name = "config-repo"
+origin = "git@gitlab.com:example/configs.git"
+path = "configs"       # Will be cloned to ./repos/configs
+branch = "main"        # Use main branch
+```
+
+This configuration defines three repositories to be synchronized, each with its own remote URL, local path, and branch specification. When running `mctl sync`, the tool will ensure all these repositories are properly cloned and updated according to these specifications.
