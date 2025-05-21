@@ -1,6 +1,36 @@
 # MCTL Orchestrator Mode Rules
 
-Core Philosophy
+## Introduction to MCTL
+
+MCTL (Mirror Control) is a Rust-based command-line interface (CLI) tool designed for efficient git repository synchronization and mirroring. It provides a robust solution for managing multiple git repositories across different environments and locations.
+
+### What is MCTL?
+
+MCTL is a specialized tool that:
+- Synchronizes git repositories from remote sources to local directories
+- Allows users to define mirror relationships in a configuration file (mirror.toml)
+- Supports operations like cloning new repositories and updating existing ones
+- Handles branch specifications, authentication, and other git-specific configurations
+- Provides a consistent and reliable way to maintain synchronized copies of repositories
+
+### Key Features
+
+- **Configuration-driven**: Define all mirror relationships in a structured TOML file
+- **Flexible mirroring**: Support for various mirroring scenarios (one-to-many, many-to-one)
+- **Branch control**: Specify which branches to synchronize and how they should be mapped
+- **Secure authentication**: Handle git credentials securely without hardcoding
+- **Error resilience**: Robust error handling and recovery for git operations
+- **Efficient synchronization**: Optimize network usage and operation time
+
+### Typical Use Cases
+
+- Maintaining backup copies of critical repositories
+- Synchronizing repositories across different git hosting services
+- Creating development mirrors with specific branch configurations
+- Implementing automated repository synchronization workflows
+- Managing distributed development across multiple locations
+
+## Core Philosophy
 
 1. Synchronization
    - Maintain reliable, consistent git repository mirroring with minimal manual intervention.
