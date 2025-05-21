@@ -1,0 +1,33 @@
+[package]
+authors = ["MCTL Team <info@mirrorboards.com>"]
+description = "Mirror Control (MCTL) - A tool for efficient git repository synchronization and mirroring"
+edition = "2021"
+license = "MIT"
+name = "mctl"
+readme = "README.md"
+repository = "https://github.com/mirrorboards/mirrorboards-mctl"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "1.0" # Error propagation
+chrono = "0.4" # Date and time handling
+clap = {version = "4.4", features = ["derive"]}# Command line argument parsing 
+console = "0.15" # Terminal utilities
+dirs = "5.0" # Directory handling
+env_logger = "0.10" # Environment-based logger
+git2 = "0.18" # Git operations
+indicatif = "0.17" # Progress indicators
+log = "0.4" # Logging
+regex = "1.10" # Regular expressions
+secrecy = "0.8" # Secure credential handling
+serde = {version = "1.0", features = ["derive"]}# Serialization/deserialization 
+tempfile = "3.8" # Temporary file handling
+thiserror = "1.0" # Error handling
+toml = "0.8" # TOML parsing
+
+[dev-dependencies]
+assert_cmd = "2.0" # Command testing
+mockall = "0.11" # Mocking framework
+predicates = "3.0" # Test assertions
+proptest = "1.3" # Property-based testing
+test-case = "3.3" # Test case macros
