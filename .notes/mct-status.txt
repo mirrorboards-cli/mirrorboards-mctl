@@ -1,0 +1,8 @@
+mctl status
+
+# examples
+mctl status
+
+# overview
+iterate over mirror.toml repositories and check status
+gives similar raporting that "git status" but from all tracked repositories

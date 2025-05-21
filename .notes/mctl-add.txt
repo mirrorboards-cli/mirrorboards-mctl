@@ -1,0 +1,13 @@
+mctl add 
+
+# examples
+basic notation
+mctl add --git-url git@github.com:mirrorboards/mirrorboards-vscode.git --path .vscode --branch configs/lunacrafts
+
+//short notation
+mctl add git@github.com:mirrorboards/mirrorboards-vscode.git .vscode --branch configs/lunacrafts
+
+# overview
+add git repository to mirror.toml with specific config
+
+adds repo to tracked repositories
