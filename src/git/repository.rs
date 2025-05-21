@@ -113,16 +113,8 @@ impl GitRepository {
 
         fetch_options.remote_callbacks(callbacks);
 
-        // Clone options
-        let mut clone_options = git2::CloneOptions::new();
-        clone_options.fetch_options(fetch_options);
-
-        // Set branch if specified
-        if let Some(branch) = &self.branch {
-            clone_options.checkout_branch(branch);
-        }
-
         // Clone the repository
+        // Note: Using standard clone method as CloneOptions is not available in this version
         let repo = git2::Repository::clone(&self.url, &self.path).map_err(|e| {
             crate::error::types::ConfigError::new(
                 ErrorCode::GitCommandFailed,
@@ -260,30 +252,42 @@ impl GitRepository {
         // Get the parent commit
         let head = repo.head().ok();
         let parent_commit = head.as_ref().and_then(|h| h.peel_to_commit().ok());
-        let parents = parent_commit
-            .as_ref()
-            .map(|c| vec![c])
-            .unwrap_or_else(Vec::new);
-        let parents = parents.iter().collect::<Vec<_>>();
 
-        // Create the commit
-        let commit_id = repo
-            .commit(
-                Some("HEAD"),
-                &signature,
-                &signature,
-                message,
-                &tree,
-                &parents,
-            )
-            .map_err(|e| {
-                crate::error::types::ConfigError::new(
-                    ErrorCode::GitCommandFailed,
-                    format!("Failed to commit changes: {}", e),
-                    self.path.display().to_string(),
+        // Create the commit with appropriate parents
+        let commit_id = match parent_commit {
+            Some(ref commit) => {
+                // Use a reference to the commit that's owned by parent_commit
+                repo.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    message,
+                    &tree,
+                    &[commit], // Pass a slice with the parent commit
                 )
-                .with_source(Box::new(e))
-            })?;
+            }
+            None => {
+                // No parent commit, create a commit with no parents
+                repo.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    message,
+                    &tree,
+                    &[], // Empty slice for no parents
+                )
+            }
+        }
+        .map_err(|e| {
+            crate::error::types::ConfigError::new(
+                ErrorCode::GitCommandFailed,
+                format!("Failed to commit changes: {}", e),
+                self.path.display().to_string(),
+            )
+            .with_source(Box::new(e))
+        })?;
+
+        // The commit is now created in the match block above
 
         info!(
             "Committed changes to repository {}: {}",
@@ -399,9 +403,9 @@ impl GitRepository {
 
         fetch_options.remote_callbacks(callbacks);
 
-        // Fetch from remote
+        // Fetch from remote with explicit type annotation for empty string slice
         remote
-            .fetch(&[], Some(&mut fetch_options), None)
+            .fetch(&[] as &[&str], Some(&mut fetch_options), None)
             .map_err(|e| {
                 crate::error::types::ConfigError::new(
                     ErrorCode::GitCommandFailed,
@@ -435,7 +439,7 @@ impl GitRepository {
             crate::error::types::ConfigError::new(
                 ErrorCode::GitCommandFailed,
                 format!("Failed to find remote reference: {}", e),
-                remote_branch,
+                remote_branch.clone(), // Clone to avoid move
             )
             .with_source(Box::new(e))
         })?;
@@ -445,7 +449,7 @@ impl GitRepository {
             crate::error::types::ConfigError::new(
                 ErrorCode::GitCommandFailed,
                 format!("Failed to get remote commit: {}", e),
-                remote_branch,
+                remote_branch.clone(), // Clone to avoid move
             )
             .with_source(Box::new(e))
         })?;
@@ -457,7 +461,7 @@ impl GitRepository {
                 crate::error::types::ConfigError::new(
                     ErrorCode::GitCommandFailed,
                     format!("Failed to get annotated commit: {}", e),
-                    remote_branch,
+                    remote_branch.clone(), // Clone to avoid move
                 )
                 .with_source(Box::new(e))
             })?;

@@ -2,8 +2,8 @@
 //!
 //! This module handles configuration file parsing and management.
 
-mod mirror_config;
-mod paths;
+pub mod mirror_config;
+pub mod paths;
 
 pub use mirror_config::{MirrorConfig, Repository};
 pub use paths::ConfigPaths;

@@ -22,7 +22,7 @@ fn main() {
     info!("Starting MCTL");
 
     // Create CLI instance
-    let cli = Cli::new();
+    let mut cli = Cli::new();
 
     // Parse arguments and execute command
     match cli.parse_args() {

@@ -48,12 +48,13 @@ pub fn sync_repository(
         .repositories
         .get(repo_name)
         .ok_or_else(|| {
-            crate::error::types::ConfigError::new(
+            let err: MctlError = crate::error::types::ConfigError::new(
                 crate::error::types::ErrorCode::RepositoryNotFound,
                 format!("Repository '{}' not found", repo_name),
                 "".to_string(),
             )
-            .into()
+            .into();
+            err
         })?;
 
     // Pull changes

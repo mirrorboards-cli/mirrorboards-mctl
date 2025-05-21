@@ -53,12 +53,13 @@ pub fn update_repository(
     // Get the repository configuration
     let config = repo_manager.get_config_mut();
     let repo = config.repositories.get_mut(repo_name).ok_or_else(|| {
-        crate::error::types::ConfigError::new(
+        let err: MctlError = crate::error::types::ConfigError::new(
             crate::error::types::ErrorCode::RepositoryNotFound,
             format!("Repository '{}' not found", repo_name),
             "".to_string(),
         )
-        .into()
+        .into();
+        err
     })?;
 
     let mut updated_fields = Vec::new();

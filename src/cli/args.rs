@@ -184,11 +184,12 @@ impl Cli {
 
         // Get global options
         let args = self.args.as_ref().ok_or_else(|| {
-            CliError::new(
+            let err: MctlError = CliError::new(
                 ErrorCode::MissingCommand,
                 "Arguments not parsed. Call parse_args() first.".to_string(),
             )
-            .into()
+            .into();
+            err
         })?;
 
         // Execute the command based on its type

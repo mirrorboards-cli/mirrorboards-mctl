@@ -47,19 +47,20 @@ pub fn check_status(
         .repositories
         .get(repo_name)
         .ok_or_else(|| {
-            crate::error::types::ConfigError::new(
+            let err: MctlError = crate::error::types::ConfigError::new(
                 crate::error::types::ErrorCode::RepositoryNotFound,
                 format!("Repository '{}' not found", repo_name),
                 "".to_string(),
             )
-            .into()
+            .into();
+            err
         })?;
 
     // Get the status
     let file_statuses = operations::status(&repo_config.path)?;
 
     // Format the status
-    let formatted_status = operations::format_status(&file_statuses);
+    let formatted_status = operations::format_status(file_statuses.as_slice());
 
     // Check if there are changes
     let has_changes = !file_statuses.is_empty();
