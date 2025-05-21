@@ -1,9 +1,0 @@
-mctl sync
-
-# examples
-mctl sync
-
-# overview
-reads mirror.toml and clone all repositories
-if repository is already cloned, omits it 
-but if it not cloned, it clone it

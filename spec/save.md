@@ -8,13 +8,15 @@ The `mctl save` command iterates over all repositories defined in the `mirror.to
 
 ```
 mctl save [--message <COMMIT_MESSAGE>]
+mctl save "<COMMIT_MESSAGE>"
 ```
 
 ## Parameters
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `--message <COMMIT_MESSAGE>` | Custom commit message to use | No |
+| `--message <COMMIT_MESSAGE>` | Custom commit message to use (long form) | No |
+| `"<COMMIT_MESSAGE>"` | Custom commit message to use (short form) | No |
 
 ## Examples
 
@@ -22,10 +24,14 @@ mctl save [--message <COMMIT_MESSAGE>]
 mctl save
 ```
 
-With a custom commit message:
-
+With a custom commit message (long form):
 ```bash
 mctl save --message "Update configuration files across repositories"
+```
+
+With a custom commit message (short form):
+```bash
+mctl save "Update configuration files across repositories"
 ```
 
 ## Behavior

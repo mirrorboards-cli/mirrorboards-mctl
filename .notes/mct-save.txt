@@ -1,9 +1,0 @@
-mctl save
-
-# examples
-mctl save
-
-# overview
-iterate over mirror.toml repositories and make git add and then git push
-
-default commit message is "${repository.org}${repository.name} - ${timestamp}" 

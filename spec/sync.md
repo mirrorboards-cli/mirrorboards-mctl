@@ -1,40 +1,224 @@
 # `mctl sync` Command
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Syntax](#syntax)
+- [Options](#options)
+- [Examples](#examples)
+- [Behavior](#behavior)
+- [Output](#output)
+- [Authentication](#authentication)
+- [Troubleshooting](#troubleshooting)
+- [Related Commands](#related-commands)
+- [Best Practices](#best-practices)
+- [Security Considerations](#security-considerations)
+
 ## Overview
 
-The `mctl sync` command reads the `mirror.toml` configuration file and clones all defined repositories. If a repository is already cloned, it skips that repository, but if it's not yet cloned, it will clone it to the specified path.
+The `mctl sync` command reads the `mirror.toml` configuration file and initializes the repository mirroring setup by cloning all defined repositories that do not yet exist locally. For existing repositories, it attempts to update them by pulling the latest changes. If a repository has conflicts, uncommitted changes, or other issues, it will be skipped with an informative message. This command establishes and maintains synchronized local copies of repositories according to your configuration.
+
+## Prerequisites
+
+Before using this command:
+
+1. Ensure you have a valid `mirror.toml` configuration file in your current directory or specified config path
+2. Verify network connectivity to access remote git repositories
+3. Ensure you have proper authentication configured (SSH keys, tokens, or credentials) for the repositories
+4. Sufficient disk space available for the repositories to be cloned
+5. Consider committing or stashing any local changes in existing repositories to avoid conflicts
 
 ## Syntax
 
-```
-mctl sync
+```bash
+mctl sync [options]
 ```
 
-## Parameters
+## Options
 
-This command does not require any parameters. It automatically processes all repositories defined in the `mirror.toml` file.
+| Option | Description |
+|--------|-------------|
+| `--config <path>` | Specify a custom path to the configuration file (default: `mirror.toml` in current directory) |
+| `--verbose` | Enable verbose output with detailed progress information |
+| `--no-pull` | Skip pulling updates for existing repositories (clone-only mode) |
+| `--force` | Attempt to pull changes even if it might cause conflicts (use with caution) |
 
 ## Examples
+
+### Basic Synchronization
+
+Clone new repositories and update existing ones defined in the default `mirror.toml` file:
 
 ```bash
 mctl sync
 ```
 
+Example output:
+```
+[INFO] Reading configuration from mirror.toml
+[INFO] Found 3 repositories in configuration
+[INFO] Checking repository: example-repo
+[INFO] Cloning example-repo to ./repos/example-repo
+[INFO] Checking repository: another-repo
+[INFO] Repository exists, pulling latest changes
+[INFO] Updated another-repo: 2 files changed, 15 insertions(+), 5 deletions(-)
+[INFO] Checking repository: third-repo
+[INFO] Repository exists, has uncommitted changes - skipping pull
+[INFO] Synchronization complete: 1 repository cloned, 1 updated, 1 skipped
+```
+
+### Using Custom Configuration File
+
+```bash
+mctl sync --config custom-mirror.toml
+```
+
+### Using Verbose Output for Detailed Progress
+
+```bash
+mctl sync --verbose
+```
+
+### Clone-Only Mode (Skip Pull Operations)
+
+```bash
+mctl sync --no-pull
+```
+
+Example output:
+```
+[INFO] Reading configuration from mirror.toml
+[INFO] Found 3 repositories in configuration
+[INFO] Checking repository: example-repo
+[INFO] Cloning example-repo to ./repos/example-repo
+[INFO] Checking repository: another-repo
+[INFO] Repository already exists at ./repos/another-repo, skipping (--no-pull flag)
+[INFO] Checking repository: third-repo
+[INFO] Repository already exists at ./repos/third-repo, skipping (--no-pull flag)
+[INFO] Synchronization complete: 1 repository cloned, 0 updated, 2 skipped
+```
+
 ## Behavior
 
-1. Reads the `mirror.toml` configuration file
-2. For each repository entry:
+1. Reads the configuration file (by default `mirror.toml` in the current directory)
+2. Validates the configuration structure and repository entries
+3. For each repository entry:
+   - Resolves the full local path based on configuration settings
    - Checks if the repository already exists at the specified path
-   - If not cloned, clones the repository using the specified git URL
-   - If already cloned, skips the repository
-3. Respects branch specifications defined in the configuration
-4. Creates parent directories as needed for repository paths
+   - If not cloned:
+     - Creates parent directories as needed for the repository path
+     - Clones the repository using the specified git URL
+     - Sets up the default branch as specified in the configuration
+     - Configures remote URLs according to the repository mapping
+   - If already cloned (and `--no-pull` is not specified):
+     - Attempts to pull the latest changes from the remote repository
+     - If the pull is successful, updates the local repository
+     - If there are conflicts, uncommitted changes, or other issues:
+       - Skips the repository without modifying it
+       - Reports the specific issue for troubleshooting
+4. Respects branch specifications defined in the configuration
+5. Reports a summary of actions performed (cloned, updated, skipped)
 
-## Notes
+## Output
 
-- This command is typically run after adding new repositories with `mctl add`
-- It only performs clone operations, not updates (it doesn't pull changes for existing repositories)
-- The command is idempotent - running it multiple times will only clone repositories that haven't been cloned yet
-- Network connectivity is required to access remote git repositories
-- Authentication may be required depending on the repository access settings
-- The command uses the credentials configured in the git environment
+The command provides structured output indicating:
+
+1. Configuration file being used
+2. Number of repositories processed
+3. Action taken for each repository (cloned, updated, or skipped)
+4. For updated repositories, a summary of changes (files changed, insertions, deletions)
+5. For skipped repositories, the reason why they were skipped
+6. Summary of operations performed
+7. Any errors encountered during the process
+
+With `--verbose` flag, additional information is displayed:
+- Git commands being executed
+- Remote URLs being configured
+- Branch setup details
+- Detailed progress of clone and pull operations
+- Complete git output for each operation
+
+## Authentication
+
+The `sync` command relies on your git authentication methods:
+
+1. **SSH Keys**: For SSH URLs (git@github.com:user/repo.git), your SSH keys should be properly configured
+2. **HTTPS with Credentials**: For HTTPS URLs, credentials may be:
+   - Stored in your git credential helper
+   - Provided via environment variables (e.g., `GIT_USERNAME` and `GIT_PASSWORD`)
+   - Prompted during execution if not found elsewhere
+
+```bash
+# Example of using environment variables for authentication
+export GIT_USERNAME=your-username
+export GIT_PASSWORD=your-token
+mctl sync
+```
+
+## Troubleshooting
+
+| Issue | Possible Cause | Solution |
+|-------|---------------|----------|
+| `Authentication failed` | Missing or invalid credentials | Check your SSH keys or git credentials |
+| `Repository not found` | Incorrect URL or no access | Verify the repository URL and your access permissions |
+| `Destination path already exists and is not an empty directory` | Folder exists but is not a git repository | Remove or rename the existing folder |
+| `Could not read from remote repository` | Network issue or repository URL problem | Check your network connection and repository URL |
+| `Failed to create directory` | Insufficient permissions | Check write permissions on parent directories |
+| `Cannot pull with uncommitted changes` | Local changes not committed | Commit or stash your changes before syncing |
+| `Cannot pull: You have unmerged files` | Previous merge conflict not resolved | Resolve the conflicts or reset the repository |
+| `Cannot pull: Local branch is ahead of remote` | Local commits not pushed | Push local changes or use `mctl save` first |
+| `Auto-merging failed. Resolve conflicts and commit the result` | Conflicts between local and remote changes | Manually resolve conflicts or use `--no-pull` to skip updates |
+
+### Diagnostic Commands
+
+If you encounter issues, these commands can help:
+
+```bash
+# Verify git configuration
+git config --list
+
+# Test authentication to a repository
+git ls-remote <repository-url>
+
+# Check disk space
+df -h
+
+# Check repository status
+cd <repository-path> && git status
+
+# View repository remote configuration
+cd <repository-path> && git remote -v
+```
+
+## Related Commands
+
+- [`mctl add`](add.md): Add a new repository to the mirror configuration
+- [`mctl status`](status.md): Check status of all mirrored repositories
+- [`mctl update`](update.md): Update existing repositories with latest changes
+- [`mctl save`](save.md): Save changes from working repositories to mirrors
+
+## Best Practices
+
+1. **Initial Setup**: Run `mctl sync` after creating or updating your `mirror.toml` file to initialize repositories
+2. **Configuration Management**: Keep your `mirror.toml` file in version control
+3. **Authentication**: Set up SSH keys for secure, password-less authentication
+4. **Regular Verification**: Run `mctl status` after sync to verify repository state
+5. **Clean Repositories**: Commit or stash local changes before running sync to avoid conflicts
+6. **Separate Updates**: Use `--no-pull` when you only want to clone new repositories without updating existing ones
+7. **Troubleshooting**: Use `--verbose` when encountering issues to see detailed operation output
+
+## Security Considerations
+
+1. **Credential Storage**: Never hardcode credentials in your configuration files
+2. **Token Permissions**: When using access tokens, limit permissions to the minimum required
+3. **SSH Keys**: Use SSH keys with passphrases for enhanced security
+4. **Private Repositories**: Ensure secure access control for private repository contents
+5. **Audit**: Regularly review your mirroring setup and access patterns
+
+```bash
+# Recommended: Using SSH keys with limited scope
+git@github.com:username/repo.git
+
+# Not recommended: Hardcoded credentials in URLs
+https://username:password@github.com/username/repo.git
