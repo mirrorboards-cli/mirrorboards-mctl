@@ -25,11 +25,12 @@ The `mctl sync` command reads the `mirror.toml` configuration file and initializ
 
 Before using this command:
 
-1. Ensure you have a valid `mirror.toml` configuration file in your current directory or specified config path
-2. Verify network connectivity to access remote git repositories
-3. Ensure you have proper authentication configured (SSH keys, tokens, or credentials) for the repositories
-4. Sufficient disk space available for the repositories to be cloned
-5. Consider committing or stashing any local changes in existing repositories to avoid conflicts
+1. Ensure you have a valid `mirror.toml` configuration file in your current directory or specified by `--config`/`--mirror`
+2. If using `--dest`, ensure the destination directory exists or can be created with proper permissions
+3. Verify network connectivity to access remote git repositories
+4. Ensure you have proper authentication configured (SSH keys, tokens, or credentials) for the repositories
+5. Sufficient disk space available for the repositories to be cloned
+6. Consider committing or stashing any local changes in existing repositories to avoid conflicts
 
 ## Syntax
 
@@ -42,6 +43,8 @@ mctl sync [options]
 | Option | Description |
 |--------|-------------|
 | `--config <path>` | Specify a custom path to the configuration file (default: `mirror.toml` in current directory) |
+| `--mirror <path>` | Alias for `--config`, specify a custom path to the configuration file |
+| `--dest <path>` | Specify a custom destination directory for cloned repositories (default: current directory) |
 | `--verbose` | Enable verbose output with detailed progress information |
 | `--no-pull` | Skip pulling updates for existing repositories (clone-only mode) |
 | `--force` | Attempt to pull changes even if it might cause conflicts (use with caution) |
@@ -77,6 +80,18 @@ Example output:
 mctl sync --config custom-mirror.toml
 ```
 
+### Using Custom Destination Directory
+
+```bash
+mctl sync --dest ./backup-repos
+```
+
+### Using Both Custom Configuration and Destination
+
+```bash
+mctl sync --mirror ./examples/mirror.toml --dest ./tmp
+```
+
 ### Using Verbose Output for Detailed Progress
 
 ```bash
@@ -110,10 +125,11 @@ mctl sync --parallel 4
 
 ## Behavior
 
-1. Reads the configuration file (by default `mirror.toml` in the current directory)
-2. Validates the configuration structure and repository entries
-3. For each repository entry:
-   - Resolves the full local path based on configuration settings
+1. Reads the configuration file (by default `mirror.toml` in the current directory, or specified by `--config`/`--mirror`)
+2. Determines the base directory (current directory by default, or specified by `--dest`)
+3. Validates the configuration structure and repository entries
+4. For each repository entry:
+   - Resolves the full local path based on configuration settings and the base directory
    - Checks if the repository already exists at the specified path
    - If not cloned:
      - Creates parent directories as needed for the repository path
@@ -126,8 +142,8 @@ mctl sync --parallel 4
      - If there are conflicts, uncommitted changes, or other issues:
        - Skips the repository without modifying it
        - Reports the specific issue for troubleshooting
-4. Respects branch specifications defined in the configuration
-5. Reports a summary of actions performed (cloned, updated, skipped)
+5. Respects branch specifications defined in the configuration
+6. Reports a summary of actions performed (cloned, updated, skipped)
 
 ## Output
 
@@ -227,8 +243,10 @@ cd <repository-path> && git remote -v
 4. **Regular Verification**: Run `mctl status` after sync to verify repository state
 5. **Clean Repositories**: Commit or stash local changes before running sync to avoid conflicts
 6. **Separate Updates**: Use `--no-pull` when you only want to clone new repositories without updating existing ones
-7. **Troubleshooting**: Use `--verbose` when encountering issues to see detailed operation output
-8. **Parallel Processing**: For large numbers of repositories, use the `--parallel` option to speed up synchronization
+7. **Custom Destinations**: Use `--dest` to clone repositories to a different location than the current directory
+8. **Backup Workflows**: Combine `--mirror` and `--dest` for efficient backup workflows
+9. **Troubleshooting**: Use `--verbose` when encountering issues to see detailed operation output
+10. **Parallel Processing**: For large numbers of repositories, use the `--parallel` option to speed up synchronization
 
 ## Security Considerations
 
