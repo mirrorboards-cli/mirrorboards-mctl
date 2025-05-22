@@ -1,10 +1,3 @@
-# full form
-# mctl add --id monorepo-vscode --origin git@github.com:mirrorboards/mirrorboards-vscode.git --path ./.vscode --tag monorepo
-
-# short form
-# mctl add [origin] [path]
-# mctl add git@github.com:mirrorboards/mirrorboards-vscode.git ./.vscode --tag monorepo --id monorepo-vscode --branch main
-
 [[repositories]]
 # default: short generated id
 id = "monorepo-vscode"
