@@ -1,6 +1,0 @@
-[[repositories]]
-origin = "git@github.com:example/repo1-updated.git"
-branch = "main"
-branch-lock = false
-path = "example/repo1"
-tags = ["example", "updated"]
