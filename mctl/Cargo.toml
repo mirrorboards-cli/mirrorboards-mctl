@@ -31,6 +31,8 @@ dirs = "5.0"
 atty = "0.2"
 # Date and time
 chrono = "0.4"
+# Git operations
+git2 = "0.18"
 
 [dev-dependencies]
 assert_cmd = "2.0"

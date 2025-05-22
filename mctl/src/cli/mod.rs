@@ -7,11 +7,13 @@ pub mod init;
 pub mod repo;
 pub mod tag;
 pub mod config;
+pub mod sync;
 
 pub use init::*;
 pub use repo::*;
 pub use tag::*;
 pub use config::*;
+pub use sync::*;
 
 use clap::{Parser, Subcommand};
 
@@ -57,4 +59,7 @@ pub enum Commands {
 
     /// Manage configuration settings
     Config(config::ConfigArgs),
+
+    /// Sync repositories defined in mirror.toml
+    Sync(sync::SyncArgs),
 }

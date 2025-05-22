@@ -7,11 +7,13 @@ mod init;
 mod repo;
 mod tag;
 mod config;
+mod sync;
 
 pub use init::*;
 pub use repo::*;
 pub use tag::*;
 pub use config::*;
+pub use sync::*;
 
 use crate::cli;
 use crate::output::OutputFormatter;
@@ -61,5 +63,6 @@ pub fn execute(cli: cli::Cli, formatter: &mut dyn OutputFormatter) -> CommandRes
         cli::Commands::Repo(args) => repo::execute(args, formatter, cli.config.clone()),
         cli::Commands::Tag(args) => tag::execute(args, formatter, cli.config.clone()),
         cli::Commands::Config(args) => config::execute(args, formatter, cli.config.clone()),
+        cli::Commands::Sync(args) => sync::execute(args, formatter, cli.config.clone()),
     }
 }
