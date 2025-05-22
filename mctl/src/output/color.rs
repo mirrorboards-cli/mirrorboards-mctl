@@ -45,7 +45,7 @@ impl ColorOutput {
 impl OutputFormatter for ColorOutput {
     fn info(&mut self, message: &str) {
         if !self.quiet {
-            println!("{}", self.format(message, Color::Blue));
+            println!("{}", self.format(message, Color::White));
         }
     }
     

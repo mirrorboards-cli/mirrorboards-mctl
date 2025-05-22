@@ -4,7 +4,7 @@
 //! which shows the git status of all repositories defined in a mirror.toml file.
 
 use std::path::{Path, PathBuf};
-use git2::{Repository as GitRepository, Status as GitStatus};
+use git2::{Repository as GitRepository, Status as GitStatus, StatusOptions};
 use mirror_sdk::MirrorConfig;
 use crate::cli::status::StatusArgs;
 use crate::output::OutputFormatter;
@@ -59,8 +59,14 @@ pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_pat
         // Open the git repository
         match GitRepository::open(&repo_path) {
             Ok(git_repo) => {
+                // Configure status options to exclude ignored files
+                let mut status_opts = StatusOptions::new();
+                status_opts.include_ignored(false);
+                status_opts.include_untracked(true);
+                status_opts.exclude_submodules(false);
+                
                 // Get the repository status
-                let statuses = git_repo.statuses(None).map_err(|e| {
+                let statuses = git_repo.statuses(Some(&mut status_opts)).map_err(|e| {
                     CommandError::Other(format!("Failed to get status for {}: {}", repo_path.display(), e))
                 })?;
 
@@ -72,9 +78,9 @@ pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_pat
                             .map(|name| name.to_string_lossy().to_string())
                             .unwrap_or_else(|| repo_path_str.clone());
                         
-                        // Display clean repository with a different format
-                        formatter.success(&format!("📁 {} {} {}",
-                            "Repository:".bold(),
+                        // Display clean repository with a modern, clean format
+                        formatter.success(&format!("{} {} {}",
+                            "→".bold(),
                             repo_name.bold().green(),
                             "(clean)".green()));
                         
@@ -89,11 +95,14 @@ pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_pat
                     let repo_name = repo_path.file_name()
                         .map(|name| name.to_string_lossy().to_string())
                         .unwrap_or_else(|| repo_path_str.clone());
+                    // Display repository name with a more modern, clean format
+                    formatter.warning(&format!("{} {}", "→".bold(), repo_name.bold().yellow()));
                     
-                    // Display repository name with a more visually appealing format
-                    formatter.warning(&format!("📁 {} {}", "Repository:".bold(), repo_name.bold().yellow()));
                     
-                    // Process each status entry
+                    // Collect changed and untracked files separately
+                    let mut changed_files = Vec::new();
+                    let mut untracked_files = Vec::new();
+                    
                     for entry in statuses.iter() {
                         let status = entry.status();
                         let path = entry.path().unwrap_or("unknown");
@@ -104,7 +113,31 @@ pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_pat
                         
                         // Format the status with color
                         let status_str = format_git_status(status);
-                        formatter.info(&format!("    {} {}", status_str, relative_path));
+                        
+                        // Determine file type and add to appropriate collection
+                        if status.is_wt_new() {
+                            untracked_files.push((status, relative_path));
+                        } else {
+                            changed_files.push((status, relative_path));
+                        }
+                    }
+                    
+                    // Display changed files
+                    if !changed_files.is_empty() {
+                        formatter.info("  Changed files:");
+                        for (status, path) in changed_files {
+                            let colored_path = color_path_by_status(status, &path);
+                            formatter.info(&format!("    {}", colored_path));
+                        }
+                    }
+                    
+                    // Display untracked files
+                    if !untracked_files.is_empty() {
+                        formatter.info("  Untracked files:");
+                        for (status, path) in untracked_files {
+                            let colored_path = color_path_by_status(status, &path);
+                            formatter.info(&format!("    {}", colored_path));
+                        }
                     }
                     
                     // Add a separator line between repositories for better readability
@@ -119,27 +152,13 @@ pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_pat
     }
 
     if !has_changes {
-        formatter.success("✅ All repositories are clean");
-    } else {
-        // Add a legend for the status codes
-        formatter.info("\n📋 Status Legend:");
-        formatter.info(&format!("  {} = Added (staged)", "A".green().bold()));
-        formatter.info(&format!("  {} = Modified (staged)", "M".blue().bold()));
-        formatter.info(&format!("  {} = Deleted (staged)", "D".red().bold()));
-        formatter.info(&format!("  {} = Renamed (staged)", "R".cyan().bold()));
-        formatter.info(&format!("  {} = Type changed (staged)", "T".magenta().bold()));
-        formatter.info(&format!("  {} = New (unstaged)", "??".bright_green().bold()));
-        formatter.info(&format!("  {} = Modified (unstaged)", "M".bright_blue().bold()));
-        formatter.info(&format!("  {} = Deleted (unstaged)", "D".bright_red().bold()));
-        formatter.info(&format!("  {} = Renamed (unstaged)", "R".bright_cyan().bold()));
-        formatter.info(&format!("  {} = Type changed (unstaged)", "T".bright_magenta().bold()));
-        formatter.info(&format!("  {} = Conflicted", "!!".bright_yellow().bold()));
+        formatter.success("All repositories are clean");
     }
 
     Ok(())
 }
 
-/// Format git status as a colored string
+/// Format git status as a colored string (for internal use)
 fn format_git_status(status: GitStatus) -> String {
     if status.is_index_new() {
         "A".green().bold().to_string()
@@ -165,6 +184,35 @@ fn format_git_status(status: GitStatus) -> String {
         "!!".bright_yellow().bold().to_string()
     } else {
         " ".to_string()
+    }
+}
+
+/// Color the file path based on its git status
+fn color_path_by_status(status: GitStatus, path: &str) -> String {
+    if status.is_index_new() {
+        path.green().to_string()
+    } else if status.is_index_modified() {
+        path.blue().to_string()
+    } else if status.is_index_deleted() {
+        path.red().to_string()
+    } else if status.is_index_renamed() {
+        path.cyan().to_string()
+    } else if status.is_index_typechange() {
+        path.magenta().to_string()
+    } else if status.is_wt_new() {
+        path.bright_green().to_string()
+    } else if status.is_wt_modified() {
+        path.bright_blue().to_string()
+    } else if status.is_wt_deleted() {
+        path.bright_red().to_string()
+    } else if status.is_wt_renamed() {
+        path.bright_cyan().to_string()
+    } else if status.is_wt_typechange() {
+        path.bright_magenta().to_string()
+    } else if status.is_conflicted() {
+        path.bright_yellow().to_string()
+    } else {
+        path.white().to_string()
     }
 }
 

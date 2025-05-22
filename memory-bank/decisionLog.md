@@ -105,7 +105,66 @@ This file records architectural and implementation decisions using a list format
 * Modified `status.rs` to skip repositories with no changes by default
 * Added a new `--show-clean` flag to optionally display clean repositories
 * Enhanced `format_git_status` to return colored status indicators
-* Added emoji icons and better formatting for repository names and status
+* Used a modern, clean design with minimal visual elements
 * Included a status legend at the end of the output when changes are present
 * Used different colors for staged vs. unstaged changes for better distinction
+
+2025-05-22 22:01:04 - Refined status command with a more modern design.
+
+## Decision
+
+* Update the status command with a more modern, cleaner visual design
+* Remove emoji icons in favor of simpler, more professional indicators
+* Maintain color coding but with a more subtle and professional appearance
+
+## Rationale
+
+* A cleaner, more modern design improves the professional appearance of the tool
+* Simpler indicators (like "→") provide visual cues without being distracting
+* Consistent spacing and formatting enhances readability while maintaining a clean look
+
+## Implementation Details
+
+* Replaced emoji icons with simpler arrow indicators
+* Standardized indentation and spacing for a cleaner appearance
+* Simplified the status legend format while maintaining color coding
+* Ensured consistent formatting between clean and modified repositories
+2025-05-22 22:05:35 - Updated status command to respect .gitignore files.
+
+## Decision
+
+* Modify the status command to exclude files that are in .gitignore
+* Configure git status options to filter out ignored files
+
+## Rationale
+
+* Showing ignored files clutters the output with files that are intentionally excluded from version control
+* Users typically don't need to see ignored files in the status output
+* This behavior is more consistent with the standard git status command
+
+## Implementation Details
+
+* Used git2's StatusOptions to configure what files are included in the status
+* Set include_ignored(false) to exclude files that are in .gitignore
+* Maintained other status options (include_untracked, exclude_submodules) for consistent behavior
 * Successfully tested local installation with `cargo install --path .`
+2025-05-22 22:08:31 - Further refined status command with improved visual design.
+
+## Decision
+
+* Remove the status legend for a cleaner output
+* Color the file paths based on their status type, not just the status indicators
+* Show changed and untracked files separately for better organization
+
+## Rationale
+
+* Removing the legend creates a cleaner, more streamlined output
+* Coloring the entire file path makes it easier to identify file types at a glance
+* Separating changed and untracked files provides better organization and clarity
+
+## Implementation Details
+
+* Removed the status legend from the output
+* Created a new function to color file paths based on their git status
+* Collected and displayed changed and untracked files in separate sections
+* Maintained consistent color coding for different status types

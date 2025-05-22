@@ -16,6 +16,9 @@ This file tracks the project's current status, including recent changes, current
 * 2025-05-22 21:43:15 - Made mctl installable from cargo by updating Cargo.toml with proper metadata and dependency configuration
 * 2025-05-22 21:52:10 - Implemented new `status` command for mctl to show git status of all repositories defined in mirror.toml
 * 2025-05-22 21:58:43 - Enhanced the `status` command with improved visual presentation, including color coding, better formatting, and the option to hide clean repositories
+* 2025-05-22 22:05:56 - Updated the `status` command to respect .gitignore files, excluding ignored files from the output
+* 2025-05-22 22:08:50 - Further refined the `status` command by removing the legend, coloring file paths based on status, and separating changed and untracked files
+* 2025-05-22 22:01:34 - Refined the `status` command with a more modern, cleaner design by replacing emoji icons with simpler indicators and standardizing formatting
 
 ## Open Questions/Issues
 
