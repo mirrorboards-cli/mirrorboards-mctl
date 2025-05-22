@@ -18,12 +18,19 @@ Mirror Control (mctl) is a CLI tool that leverages the mirror-sdk to manage repo
 
 ## Installation
 
+### From GitHub (Recommended)
+
+```bash
+# Install directly from GitHub repository
+cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --path mctl --config net.git-fetch-with-cli=true
+```
+
 ### From Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/example/mirrorboards.git
-cd mirrorboards/mctl
+git clone https://github.com/mirrorboards/mirrorboards-mctl.git
+cd mirrorboards-mctl/mctl
 
 # Build the project
 cargo build --release
