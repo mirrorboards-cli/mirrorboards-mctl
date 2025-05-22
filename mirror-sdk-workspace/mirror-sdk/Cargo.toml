@@ -1,0 +1,37 @@
+[package]
+name = "mirror-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["MirrorBoards Team"]
+description = "SDK for managing mirror.toml files"
+license = "MIT"
+repository = "https://github.com/mirrorboards/mirror-sdk"
+documentation = "https://docs.rs/mirror-sdk"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Serialization/deserialization
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Filesystem operations
+fs-err = "2.9"
+
+# Path manipulation
+pathdiff = "0.2"
+
+# Environment variables
+dotenv = "0.15"
+
+# UUID generation for repository IDs
+uuid = { version = "1.4", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_fs = "1.0"
