@@ -8,7 +8,7 @@ use git2::{Repository as GitRepository, Cred, RemoteCallbacks, PushOptions, Cred
 use mirror_sdk::MirrorConfig;
 use crate::cli::save::SaveArgs;
 use crate::output::OutputFormatter;
-use crate::utils::resolve_relative_path;
+use crate::utils::{resolve_relative_path, resolve_ssh_key_path, get_ssh_key, set_ssh_key};
 use super::{CommandResult, CommandError};
 use chrono::Local;
 
@@ -45,6 +45,30 @@ pub fn execute(args: SaveArgs, formatter: &mut dyn OutputFormatter, config_path:
     // Store authentication settings
     let use_auth = !args.no_auth;
     let use_push = !args.no_push;
+
+    // Determine SSH key path with fallback hierarchy
+    let ssh_key_path = if let Some(cli_ssh_key) = &args.ssh_key {
+        // User provided via CLI - save to config for future use
+        formatter.info(&format!("Saving SSH key path '{}' to config for future use", cli_ssh_key));
+        if let Err(e) = set_ssh_key(cli_ssh_key) {
+            formatter.warning(&format!("Failed to save SSH key to config: {}", e));
+        }
+        Some(resolve_ssh_key_path(cli_ssh_key)?)
+    } else {
+        // Check config file for saved SSH key
+        match get_ssh_key()? {
+            Some(saved_ssh_key) => {
+                formatter.info(&format!("Using saved SSH key from config: {}", &saved_ssh_key));
+                Some(resolve_ssh_key_path(&saved_ssh_key)?)
+            }
+            None => {
+                if use_auth {
+                    formatter.info("No SSH key specified, will use SSH agent authentication");
+                }
+                None
+            }
+        }
+    };
 
     // Generate timestamp for commit messages
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -188,7 +212,7 @@ pub fn execute(args: SaveArgs, formatter: &mut dyn OutputFormatter, config_path:
 
         // Push to remote if not skipped
         if use_push {
-            if let Err(e) = push_to_remote(&git_repo, &args, formatter, &repo_name, use_auth) {
+            if let Err(e) = push_to_remote(&git_repo, &ssh_key_path, formatter, &repo_name, use_auth) {
                 formatter.error(&format!("Failed to push {}: {}", repo_name, e));
                 continue;
             }
@@ -253,7 +277,7 @@ fn create_git_signature(repo: &GitRepository) -> Result<Signature, git2::Error> 
 /// Push changes to remote repository
 fn push_to_remote(
     git_repo: &GitRepository,
-    args: &SaveArgs,
+    ssh_key_path: &Option<PathBuf>,
     formatter: &mut dyn OutputFormatter,
     repo_name: &str,
     use_auth: bool,
@@ -273,24 +297,24 @@ fn push_to_remote(
     let mut push_options = PushOptions::new();
     if use_auth {
         formatter.info(&format!("Setting up SSH authentication for {}", repo_name));
-        if let Some(ref ssh_key_path) = args.ssh_key {
-            formatter.info(&format!("Using SSH key from path: {}", ssh_key_path));
+        if let Some(ref key_path) = ssh_key_path {
+            formatter.info(&format!("Using SSH key from path: {}", key_path.display()));
         } else {
             formatter.info(&format!("Using SSH key from agent for {}", repo_name));
         }
         
         let mut callbacks = RemoteCallbacks::new();
-        let ssh_key = args.ssh_key.clone();
+        let ssh_key = ssh_key_path.clone();
         callbacks.credentials(move |_url, username_from_url, allowed_types| {
             // Check if SSH key authentication is allowed
             if allowed_types.contains(CredentialType::SSH_KEY) ||
                allowed_types.contains(CredentialType::SSH_MEMORY) {
                 // Use the provided SSH key if specified
-                if let Some(ref ssh_key_path) = ssh_key {
+                if let Some(ref key_path) = ssh_key {
                     Cred::ssh_key(
                         username_from_url.unwrap_or("git"),
                         None,
-                        Path::new(ssh_key_path),
+                        key_path.as_path(),
                         None,
                     )
                 } else {

@@ -1,11 +1,28 @@
 //! Configuration utilities
 //!
-//! This module provides utilities for working with mirror.toml files.
+//! This module provides utilities for working with mirror.toml files and user configuration.
 
 use std::path::{Path, PathBuf};
 use std::env;
+use std::fs;
+use std::io::{Read, Write};
+use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use mirror_sdk::{MirrorConfig, DEFAULT_FILENAME, ENV_MIRROR_PATH};
 use crate::commands::{CommandResult, CommandError};
+
+/// User configuration file name
+const USER_CONFIG_FILE: &str = ".mctl.json";
+
+/// SSH key configuration key
+const SSH_KEY_CONFIG_KEY: &str = "ssh_key";
+
+/// User configuration structure
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct UserConfig {
+    /// Configuration options
+    options: HashMap<String, String>,
+}
 
 /// Resolves the path to the mirror.toml file
 ///
@@ -95,4 +112,74 @@ pub fn backup_config(cli_path: Option<String>) -> CommandResult<PathBuf> {
         .map_err(|e| CommandError::File(format!("Failed to create backup: {}", e)))?;
     
     Ok(backup_path)
+}
+
+/// Get the path to the user configuration file
+fn get_user_config_path() -> CommandResult<PathBuf> {
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| CommandError::Config("Could not determine home directory".to_string()))?;
+    Ok(home_dir.join(USER_CONFIG_FILE))
+}
+
+/// Load the user configuration
+fn load_user_config() -> CommandResult<UserConfig> {
+    let config_path = get_user_config_path()?;
+    
+    // If the file doesn't exist, return a default configuration
+    if !config_path.exists() {
+        return Ok(UserConfig::default());
+    }
+    
+    // Read the file
+    let mut file = fs::File::open(&config_path)
+        .map_err(|e| CommandError::File(format!("Failed to open user config file: {}", e)))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|e| CommandError::File(format!("Failed to read user config file: {}", e)))?;
+    
+    // Parse the JSON
+    serde_json::from_str(&contents)
+        .map_err(|e| CommandError::Config(format!("Failed to parse user config file: {}", e)))
+}
+
+/// Save the user configuration
+fn save_user_config(config: &UserConfig) -> CommandResult<()> {
+    let config_path = get_user_config_path()?;
+    
+    // Serialize to JSON
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| CommandError::Config(format!("Failed to serialize user config: {}", e)))?;
+    
+    // Write to file
+    let mut file = fs::File::create(&config_path)
+        .map_err(|e| CommandError::File(format!("Failed to create user config file: {}", e)))?;
+    file.write_all(json.as_bytes())
+        .map_err(|e| CommandError::File(format!("Failed to write user config file: {}", e)))?;
+    
+    Ok(())
+}
+
+/// Get the saved SSH key path from user configuration
+///
+/// # Returns
+///
+/// An `Option<String>` containing the SSH key path if set, or `None` if not configured
+pub fn get_ssh_key() -> CommandResult<Option<String>> {
+    let config = load_user_config()?;
+    Ok(config.options.get(SSH_KEY_CONFIG_KEY).cloned())
+}
+
+/// Set the SSH key path in user configuration
+///
+/// # Arguments
+///
+/// * `path` - SSH key path to save
+///
+/// # Returns
+///
+/// A `Result<()>` indicating success or failure
+pub fn set_ssh_key(path: &str) -> CommandResult<()> {
+    let mut config = load_user_config()?;
+    config.options.insert(SSH_KEY_CONFIG_KEY.to_string(), path.to_string());
+    save_user_config(&config)
 }

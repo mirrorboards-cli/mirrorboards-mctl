@@ -9,6 +9,7 @@ use git2::{Repository as GitRepository, Cred, RemoteCallbacks, FetchOptions, bui
 use mirror_sdk::MirrorConfig;
 use crate::cli::sync::SyncArgs;
 use crate::output::OutputFormatter;
+use crate::utils::{resolve_ssh_key_path, get_ssh_key, set_ssh_key};
 use super::{CommandResult, CommandError};
 
 /// Execute the sync command
@@ -40,6 +41,30 @@ pub fn execute(args: SyncArgs, formatter: &mut dyn OutputFormatter, config_path:
 
     // Store authentication settings
     let use_auth = !args.no_auth;
+
+    // Determine SSH key path with fallback hierarchy
+    let ssh_key_path = if let Some(cli_ssh_key) = &args.ssh_key {
+        // User provided via CLI - save to config for future use
+        formatter.info(&format!("Saving SSH key path '{}' to config for future use", cli_ssh_key));
+        if let Err(e) = set_ssh_key(cli_ssh_key) {
+            formatter.warning(&format!("Failed to save SSH key to config: {}", e));
+        }
+        Some(resolve_ssh_key_path(cli_ssh_key)?)
+    } else {
+        // Check config file for saved SSH key
+        match get_ssh_key()? {
+            Some(saved_ssh_key) => {
+                formatter.info(&format!("Using saved SSH key from config: {}", &saved_ssh_key));
+                Some(resolve_ssh_key_path(&saved_ssh_key)?)
+            }
+            None => {
+                if use_auth {
+                    formatter.info("No SSH key specified, will use SSH agent authentication");
+                }
+                None
+            }
+        }
+    };
 
     // Process each repository
     for repo in repositories {
@@ -85,24 +110,24 @@ pub fn execute(args: SyncArgs, formatter: &mut dyn OutputFormatter, config_path:
         if use_auth {
             // Log authentication information outside the closure
             formatter.info("Setting up SSH authentication");
-            if let Some(ref ssh_key_path) = args.ssh_key {
-                formatter.info(&format!("Using SSH key from path: {}", ssh_key_path));
+            if let Some(ref key_path) = ssh_key_path {
+                formatter.info(&format!("Using SSH key from path: {}", key_path.display()));
             } else {
                 formatter.info("Using SSH key from agent");
             }
             
             let mut callbacks = RemoteCallbacks::new();
-            let ssh_key = args.ssh_key.clone();
+            let ssh_key = ssh_key_path.clone();
             callbacks.credentials(move |_url, username_from_url, allowed_types| {
                 // Check if SSH key authentication is allowed
                 if allowed_types.contains(CredentialType::SSH_KEY) ||
                    allowed_types.contains(CredentialType::SSH_MEMORY) {
                     // Use the provided SSH key if specified
-                    if let Some(ref ssh_key_path) = ssh_key {
+                    if let Some(ref key_path) = ssh_key {
                         Cred::ssh_key(
                             username_from_url.unwrap_or("git"),
                             None,
-                            Path::new(ssh_key_path),
+                            key_path,
                             None,
                         )
                     } else {
