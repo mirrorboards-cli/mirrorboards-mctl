@@ -11,6 +11,7 @@ pub mod sync;
 pub mod status;
 pub mod diff;
 pub mod save;
+pub mod reset;
 
 pub use init::*;
 pub use repo::*;
@@ -20,6 +21,7 @@ pub use sync::*;
 pub use status::*;
 pub use diff::*;
 pub use save::*;
+pub use reset::*;
 
 use clap::{Parser, Subcommand};
 
@@ -77,4 +79,7 @@ pub enum Commands {
 
     /// Commit and push changes in repositories defined in mirror.toml
     Save(save::SaveArgs),
+
+    /// Reset repositories defined in mirror.toml to a specific commit
+    Reset(reset::ResetArgs),
 }
