@@ -9,6 +9,7 @@ mod tag;
 mod config;
 mod sync;
 mod status;
+mod diff;
 
 pub use init::*;
 pub use repo::*;
@@ -16,6 +17,7 @@ pub use tag::*;
 pub use config::*;
 pub use sync::*;
 pub use status::*;
+pub use diff::*;
 
 use crate::cli;
 use crate::output::OutputFormatter;
@@ -67,5 +69,6 @@ pub fn execute(cli: cli::Cli, formatter: &mut dyn OutputFormatter) -> CommandRes
         cli::Commands::Config(args) => config::execute(args, formatter, cli.config.clone()),
         cli::Commands::Sync(args) => sync::execute(args, formatter, cli.config.clone()),
         cli::Commands::Status(args) => status::execute(args, formatter, cli.config.clone()),
+        cli::Commands::Diff(args) => diff::execute(args, formatter, cli.config.clone()),
     }
 }

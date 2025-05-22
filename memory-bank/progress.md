@@ -101,3 +101,16 @@ This file tracks the project's progress using a task list format.
   * Ensured consistent formatting between clean and modified repositories
   * Created a more subtle and professional visual presentation
   * Successfully tested local installation with `cargo install --path .`
+2025-05-22 22:42:11 - Implemented complete diff command for mctl.
+
+* Created new `diff` command implementation in src/commands/diff.rs:
+  * Implements git diff functionality across multiple repositories
+  * Supports staged changes, commit-to-commit diffs, and working tree diffs
+  * Includes file pattern filtering with include/exclude glob patterns
+  * Provides multiple output formats: full diff, stats only, name-only
+  * Handles color output and proper error reporting
+  * Follows established patterns from status command
+  * Added proper lifetime management and error handling
+* Updated src/commands/mod.rs to register the new diff command
+* Added glob dependency to Cargo.toml for pattern matching
+* Successfully compiles with no errors (only minor warnings for unused code)

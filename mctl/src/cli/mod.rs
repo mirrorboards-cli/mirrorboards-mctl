@@ -9,6 +9,7 @@ pub mod tag;
 pub mod config;
 pub mod sync;
 pub mod status;
+pub mod diff;
 
 pub use init::*;
 pub use repo::*;
@@ -16,6 +17,7 @@ pub use tag::*;
 pub use config::*;
 pub use sync::*;
 pub use status::*;
+pub use diff::*;
 
 use clap::{Parser, Subcommand};
 
@@ -67,4 +69,7 @@ pub enum Commands {
 
     /// Show git status of repositories defined in mirror.toml
     Status(status::StatusArgs),
+
+    /// Show git diffs across repositories defined in mirror.toml
+    Diff(diff::DiffArgs),
 }
