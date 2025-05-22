@@ -2,11 +2,14 @@
 origin = "git@github.com:mirrorboards/mirrorboards-vscode.git"
 branch = "main"
 path = ".vscode"
+tags = ["monorepo"]
 
 [[repositories]]
 origin = "git@github.com:mirrorboards/mirrorboards-bin.git"
 branch = "main"
+branch-lock = true
 path = "bin"
+tags = ["monorepo"]
 
 [[repositories]]
 origin = "git@github.com:mirrorboards/mirrorboards-legacy.git"
@@ -16,7 +19,6 @@ path = ".legacy"
 [[repositories]]
 origin = "git@github.com:estateboards/whitepapers.git"
 branch = "main"
-branch-lock = "true"
 path = "estateboards/whitepapers"
 
 ### pay2vault ###
@@ -24,31 +26,37 @@ path = "estateboards/whitepapers"
 origin = "git@github.com:pay2vault/pay2vault-api-proto.git"
 branch = "main"
 path = "pay2vault/pay2vault-api-proto"
+tags = ["pay2vault"]
 
 [[repositories]]
 origin = "git@github.com:pay2vault/pay2vault-api.git"
 branch = "main"
 path = "pay2vault/pay2vault-api"
+tags = ["pay2vault"]
 
 [[repositories]]
 origin = "git@github.com:pay2vault/api.git"
 branch = "main"
 path = "pay2vault/pay2vault-api-next"
+tags = ["pay2vault"]
 
 [[repositories]]
 origin = "git@github.com:pay2vault/pay2vault-notes.git"
 branch = "main"
 path = "pay2vault/pay2vault-notes"
+tags = ["pay2vault"]
 
 [[repositories]]
 origin = "git@github.com:pay2vault/pay2vault-web.git"
 branch = "main"
 path = "pay2vault/pay2vault-web"
+tags = ["pay2vault"]
 
 [[repositories]]
 origin = "git@github.com:pay2vault/pay2vault-genesis.git"
 branch = "main"
 path = "pay2vault/pay2vault-genesis"
+tags = ["pay2vault"]
 
 ### mirrorboards ###
 [[repositories]]
@@ -70,6 +78,7 @@ path = "mirrorboards-types/mirrorboards-types-revpop"
 origin = "git@github.com:mirrorboards/mirrorboards-pulumi-utils.git"
 branch = "main"
 path = "mirrorboards/mirrorboards-pulumi-utils"
+tags = ["utils", "mirrorboards-pulumi"]
 
 [[repositories]]
 origin = "git@github.com:mirrorboards/mirrorboards-pulumi.git"
@@ -90,6 +99,7 @@ path = "mirrorboards/mirrorboards-pulumi/namespace"
 origin = "git@github.com:mirrorboards/mirrorboards-pulumi-k8s.git"
 branch = "main"
 path = "mirrorboards/mirrorboards-pulumi/k8s"
+tags = ["utils", "platform"]
 
 [[repositories]]
 origin = "git@github.com:mirrorboards/mirrorboards-mctl.git"
@@ -131,6 +141,7 @@ path = "mirrorboards/mirrorboards-fish-functions"
 origin = "git@github.com:pay2vault/pay2vault-platform.git"
 branch = "main"
 path = "platform/platform-pay2vault"
+tags = ["pay2vault", "platform"]
 
 [[repositories]]
 origin = "git@github.com:mirrorboards/platform.git"
@@ -142,7 +153,6 @@ origin = "git@github.com:pay2exchange/pay2exchange-platform.git"
 branch = "main"
 path = "platform/platform-pay2exchange"
 
-### pay2exchange ###
 [[repositories]]
 origin = "git@github.com:pay2exchange/pay2exchange-notes.git"
 branch = "main"
