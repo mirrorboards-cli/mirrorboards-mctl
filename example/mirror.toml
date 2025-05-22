@@ -1,4 +1,5 @@
 [[repositories]]
+id = "monorepo-vscode"
 origin = "git@github.com:mirrorboards/mirrorboards-vscode.git"
 branch = "main"
 path = ".vscode"
@@ -86,6 +87,7 @@ branch = "main"
 path = "mirrorboards/mirrorboards-pulumi"
 
 [[repositories]]
+id = "0x123123123123231"
 origin = "git@github.com:mirrorboards/mirrorboards-pulumi-blockchain.git"
 branch = "main"
 path = "mirrorboards/mirrorboards-pulumi/blockchain"
