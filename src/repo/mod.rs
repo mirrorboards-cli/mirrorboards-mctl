@@ -11,5 +11,5 @@ mod update;
 pub use manager::RepositoryManager;
 pub use save::save_changes;
 pub use status::check_status;
-pub use sync::sync_repositories;
+pub use sync::{get_sync_summary, sync_repositories};
 pub use update::update_repositories;

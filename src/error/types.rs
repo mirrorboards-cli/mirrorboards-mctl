@@ -12,6 +12,7 @@ pub enum ErrorCode {
     InvalidArgument,
     MissingCommand,
     MissingRequiredOption,
+    InvalidCommand,
 
     // Config errors
     ConfigNotFound,
@@ -39,6 +40,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::InvalidArgument => write!(f, "E001"),
             ErrorCode::MissingCommand => write!(f, "E002"),
             ErrorCode::MissingRequiredOption => write!(f, "E003"),
+            ErrorCode::InvalidCommand => write!(f, "E004"),
             ErrorCode::ConfigNotFound => write!(f, "E101"),
             ErrorCode::InvalidConfigFormat => write!(f, "E102"),
             ErrorCode::ConfigWriteFailed => write!(f, "E103"),
@@ -116,6 +118,7 @@ impl MctlErrorTrait for CliError {
             ErrorCode::MissingRequiredOption => {
                 format!("Missing required option: {}", self.message)
             }
+            ErrorCode::InvalidCommand => format!("Invalid command: {}", self.message),
             _ => self.message.clone(),
         }
     }
@@ -130,6 +133,9 @@ impl MctlErrorTrait for CliError {
             }
             ErrorCode::MissingRequiredOption => {
                 Some("Run 'mctl <command> --help' to see required options".to_string())
+            }
+            ErrorCode::InvalidCommand => {
+                Some("The command type does not match the expected operation. This is likely an internal error.".to_string())
             }
             _ => None,
         }

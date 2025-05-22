@@ -1,223 +1,229 @@
-### utils ###
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-vscode.git"
+# Mirror configuration file
+
+[global]
+# Global configuration options can be added here
+# default_branch = "main"
+# default_auth_method = "ssh"
+
+# Utils repositories
+[repositories.vscode]
 path = ".vscode"
+url = "git@github.com:mirrorboards/mirrorboards-vscode.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-bin.git"
-path = "bin"
+[repositories.bin]
 branch = "configs/lunacrafts"
+path = "bin"
+url = "git@github.com:mirrorboards/mirrorboards-bin.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-legacy.git"
+[repositories.legacy]
 path = ".legacy"
+url = "git@github.com:mirrorboards/mirrorboards-legacy.git"
 
-### estateboards ###
-[[repositories]]
-git-url = "git@github.com:estateboards/whitepapers.git"
+# Estateboards repositories
+[repositories.estateboards_whitepapers]
 path = "estateboards/whitepapers"
+url = "git@github.com:estateboards/whitepapers.git"
 
-### pay2vault ###
-[[repositories]]
-git-url = "git@github.com:pay2vault/pay2vault-api-proto.git"
+# Pay2vault repositories
+[repositories.pay2vault_api_proto]
 path = "pay2vault/pay2vault-api-proto"
+url = "git@github.com:pay2vault/pay2vault-api-proto.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2vault/pay2vault-api.git"
+[repositories.pay2vault_api]
 path = "pay2vault/pay2vault-api"
+url = "git@github.com:pay2vault/pay2vault-api.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2vault/api.git"
+[repositories.pay2vault_api_next]
 path = "pay2vault/pay2vault-api-next"
+url = "git@github.com:pay2vault/api.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2vault/pay2vault-notes.git"
+[repositories.pay2vault_notes]
 path = "pay2vault/pay2vault-notes"
+url = "git@github.com:pay2vault/pay2vault-notes.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2vault/pay2vault-web.git"
+[repositories.pay2vault_web]
 path = "pay2vault/pay2vault-web"
+url = "git@github.com:pay2vault/pay2vault-web.git"
 
-### mirrorboards ###
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-pulumi-utils.git"
+# Mirrorboards repositories
+[repositories.mirrorboards_pulumi_utils]
 path = "mirrorboards/mirrorboards-pulumi-utils"
+url = "git@github.com:mirrorboards/mirrorboards-pulumi-utils.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-mctl.git"
+[repositories.mirrorboards_mctl]
 path = "mirrorboards/mirrorboards-mctl"
+url = "git@github.com:mirrorboards/mirrorboards-mctl.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-mctl.git"
+[repositories.mirrorboards_mctl_v2]
 path = "mirrorboards/mirrorboards-mctl-v2"
+url = "git@github.com:mirrorboards/mirrorboards-mctl.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-roo-flow.git"
+[repositories.mirrorboards_roo_flow]
 path = "mirrorboards/mirrorboards-roo-flow"
+url = "git@github.com:mirrorboards/mirrorboards-roo-flow.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-roo-sparc.git"
+[repositories.mirrorboards_roo_sparc]
 path = "mirrorboards/mirrorboards-roo-sparc"
+url = "git@github.com:mirrorboards/mirrorboards-roo-sparc.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-roo-modes.git"
+[repositories.mirrorboards_roo_modes]
 path = "mirrorboards/mirrorboards-roo-modes"
+url = "git@github.com:mirrorboards/mirrorboards-roo-modes.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-notes.git"
+[repositories.mirrorboards_notes]
 path = ".notes"
+url = "git@github.com:mirrorboards/mirrorboards-notes.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-fish-functions.git"
+[repositories.mirrorboards_fish_functions]
 path = "mirrorboards/mirrorboards-fish-functions"
+url = "git@github.com:mirrorboards/mirrorboards-fish-functions.git"
 
-### platform ###
-[[repositories]]
-git-url = "git@github.com:pay2vault/pay2vault-platform.git"
+# Platform repositories
+[repositories.platform_pay2vault]
 path = "platform/platform-pay2vault"
+url = "git@github.com:pay2vault/pay2vault-platform.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/platform.git"
+[repositories.platform_mirrorboards]
 path = "platform/platform-mirrorboards"
+url = "git@github.com:mirrorboards/platform.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-platform.git"
+[repositories.platform_pay2exchange]
 path = "platform/platform-pay2exchange"
+url = "git@github.com:pay2exchange/pay2exchange-platform.git"
 
-### pay2exchange ###
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-notes.git"
+# Pay2exchange repositories
+[repositories.pay2exchange_notes]
 path = "pay2exchange/.notes"
+url = "git@github.com:pay2exchange/pay2exchange-notes.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-smart-contract.git"
+[repositories.pay2exchange_smart_contract]
 path = "pay2exchange/pay2exchange-smart-contract"
+url = "git@github.com:pay2exchange/pay2exchange-smart-contract.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/fast-compiling.git"
+[repositories.pay2exchange_fast_compiling]
 path = "pay2exchange/pay2exchange-fast-compiling"
+url = "git@github.com:pay2exchange/fast-compiling.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-js-ws.git"
+[repositories.pay2exchange_js_ws]
 path = "pay2exchange/pay2exchange-js-ws"
+url = "git@github.com:pay2exchange/pay2exchange-js-ws.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-js.git"
+[repositories.pay2exchange_js]
 path = "pay2exchange/pay2exchange-js"
+url = "git@github.com:pay2exchange/pay2exchange-js.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-report.git"
+[repositories.pay2exchange_report]
 path = "pay2exchange/pay2exchange-report"
+url = "git@github.com:pay2exchange/pay2exchange-report.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-core.git"
+[repositories.pay2exchange_core]
 path = "pay2exchange/pay2exchange-core"
+url = "git@github.com:pay2exchange/pay2exchange-core.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-ees.git"
+[repositories.pay2exchange_ees]
 path = "pay2exchange/pay2exchange-ees"
+url = "git@github.com:pay2exchange/pay2exchange-ees.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-portal.git"
+[repositories.pay2exchange_portal]
 path = "pay2exchange/pay2exchange-portal"
+url = "git@github.com:pay2exchange/pay2exchange-portal.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2exchange/pay2exchange-genesis.git"
+[repositories.pay2exchange_genesis]
 path = "pay2exchange/pay2exchange-genesis"
+url = "git@github.com:pay2exchange/pay2exchange-genesis.git"
 
-[[repositories]]
-git-url = "git@github.com:pay2vault/graphene-rs.git"
+[repositories.pay2vault_graphene_rs]
 path = "pay2vault-vibe/graphene-rs"
+url = "git@github.com:pay2vault/graphene-rs.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-genesis-gen.git"
+[repositories.mirrorboards_genesis_gen]
 path = "pay2vault-vibe/genesis-gen"
+url = "git@github.com:mirrorboards/mirrorboards-genesis-gen.git"
 
-[[repositories]]
-git-url = "git@github.com:mirrorboards/mirrorboards-graphene-rs.git"
+[repositories.mirrorboards_graphene_rs]
 path = "mirrorboards/mirrorboards-graphene-rs"
+url = "git@github.com:mirrorboards/mirrorboards-graphene-rs.git"
 
-# [[repositories]]
-# git-url = "git@github.com:bitshares/bitsharesjs.git"
+# Commented repositories
+# [repositories.bitshares_js]
+# url = "git@github.com:bitshares/bitsharesjs.git"
 # path = "pay2vault-vibe/graphene-rs/examples/bitsharesjs"
 
-# [[repositories]]
-# git-url = "git@github.com:R-Squared-Project/R-Squared-js.git"
+# [repositories.r_squared_js]
+# url = "git@github.com:R-Squared-Project/R-Squared-js.git"
 # path = "pay2vault-vibe/graphene-rs/examples/R-Squared-js"
 
-# [[repositories]]
-# git-url = "git@github.com:pay2exchange/ws-pp-library.git"
+# [repositories.ws_pp_library]
+# url = "git@github.com:pay2exchange/ws-pp-library.git"
 # path = "pay2exchange/ws-pp-library"
 
-# [[repositories]]
-# git-url = "git@github.com:pay2exchange/secp256k1-zkp.git"
+# [repositories.secp256k1_zkp]
+# url = "git@github.com:pay2exchange/secp256k1-zkp.git"
 # path = "pay2exchange/secp256k1-zkp"
 
-# R-Squared-Project
-
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squared-portal.git"
+# R-Squared-Project repositories
+[repositories.r_squared_portal]
 path = "x-github-mirror/R-Squared-Project/R-Squared-portal"
+url = "git@github.com:R-Squared-Project/R-Squared-portal.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/EES.git"
+[repositories.r_squared_ees]
 path = "x-github-mirror/R-Squared-Project/EES"
+url = "git@github.com:R-Squared-Project/EES.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squared-core.git"
+[repositories.r_squared_core]
 path = "x-github-mirror/R-Squared-Project/R-Squared-core"
+url = "git@github.com:R-Squared-Project/R-Squared-core.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squared-report.git"
+[repositories.r_squared_report]
 path = "x-github-mirror/R-Squared-Project/R-Squared-report"
+url = "git@github.com:R-Squared-Project/R-Squared-report.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squared-js.git"
+[repositories.r_squared_js]
 path = "x-github-mirror/R-Squared-Project/R-Squared-js"
+url = "git@github.com:R-Squared-Project/R-Squared-js.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squaredjs-ws.git"
+[repositories.r_squared_js_ws]
 path = "x-github-mirror/R-Squared-Project/R-Squaredjs-ws"
+url = "git@github.com:R-Squared-Project/R-Squaredjs-ws.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/SmartContract.git"
+[repositories.r_squared_smart_contract]
 path = "x-github-mirror/R-Squared-Project/SmartContract"
+url = "git@github.com:R-Squared-Project/SmartContract.git"
 
-# Bitshares
-
-[[repositories]]
-git-url = "git@github.com:bitshares/bitshares-ui.git"
+# Bitshares repositories
+[repositories.bitshares_ui]
 path = "x-github-mirror/bitshares/bitshares-ui"
+url = "git@github.com:bitshares/bitshares-ui.git"
 
-[[repositories]]
-git-url = "git@github.com:bitshares/bitsharesjs.git"
+[repositories.bitshares_js]
 path = "x-github-mirror/bitshares/bitsharesjs"
+url = "git@github.com:bitshares/bitsharesjs.git"
 
-[[repositories]]
-git-url = "git@github.com:bitshares/bitshares-core.git"
+[repositories.bitshares_core]
 path = "x-github-mirror/bitshares/bitshares-core"
+url = "git@github.com:bitshares/bitshares-core.git"
 
-[[repositories]]
-git-url = "git@github.com:bitshares/bsips.git"
+[repositories.bitshares_bsips]
 path = "x-github-mirror/bitshares/bsips"
+url = "git@github.com:bitshares/bsips.git"
 
-[[repositories]]
-git-url = "git@github.com:bitshares/nodejs-faucet.git"
+[repositories.bitshares_nodejs_faucet]
 path = "x-github-mirror/bitshares/nodejs-faucet"
+url = "git@github.com:bitshares/nodejs-faucet.git"
 
-[[repositories]]
-git-url = "git@github.com:bitshares/bitshares-core.git"
+[repositories.bitshares_core_duplicate]
 path = "x-github-mirror/bitshares/bitshares-core"
+url = "git@github.com:bitshares/bitshares-core.git"
 
-# graphene-rs
-[[repositories]]
-git-url = "git@github.com:bitshares/bitsharesjs.git"
+# Graphene-rs repositories
+[repositories.graphene_rs_bitsharesjs]
 path = "x-github-mirror/graphene-rs/examples/bitsharesjs"
+url = "git@github.com:bitshares/bitsharesjs.git"
 
-[[repositories]]
-git-url = "git@github.com:R-Squared-Project/R-Squared-js.git"
+[repositories.graphene_rs_r_squared_js]
 path = "x-github-mirror/graphene-rs/examples/R-Squared-js"
+url = "git@github.com:R-Squared-Project/R-Squared-js.git"
 
-[[repositories]]
-git-url = "git@github.com:pulumi/pulumi-docker.git"
+[repositories.pulumi_docker]
 path = "x-github-mirror/pulumi/pulumi-docker"
+url = "git@github.com:pulumi/pulumi-docker.git"

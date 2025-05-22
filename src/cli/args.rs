@@ -5,7 +5,7 @@
 use crate::cli::commands::Command;
 use crate::error::types::{CliError, ErrorCode, MctlError};
 use clap::{Parser, Subcommand};
-use log::debug;
+use log::{debug, info, warn};
 
 /// Mirror Control (MCTL) - A tool for efficient git repository synchronization and mirroring
 #[derive(Parser, Debug)]
@@ -215,10 +215,76 @@ impl Cli {
     }
 
     fn execute_sync(&self, command: Command, args: &Args) -> Result<(), MctlError> {
-        // This is a placeholder for the actual implementation
         debug!("Syncing repositories with options: {:?}", command);
 
-        // TODO: Implement sync command
+        // Extract sync options from command
+        let (config_path, dest, no_pull, force, parallel) = match command {
+            Command::Sync {
+                config_path,
+                dest,
+                no_pull,
+                force,
+                parallel,
+            } => (config_path, dest, no_pull, force, parallel),
+            _ => {
+                return Err(crate::error::types::CliError::new(
+                    crate::error::types::ErrorCode::InvalidArgument,
+                    "Invalid command type for sync operation".to_string(),
+                )
+                .into());
+            }
+        };
+
+        // Use provided config path or default from args
+        let config_file = config_path.unwrap_or_else(|| args.config.clone());
+        debug!("Using configuration file: {}", config_file);
+
+        // Create repository manager
+        let mut repo_manager = crate::repo::RepositoryManager::new(&config_file)?;
+
+        // Handle destination directory if provided
+        if let Some(dest_dir) = dest {
+            info!("Using custom destination directory: {}", dest_dir);
+            // Note: This would require modifying the repository paths in the config
+            // This is a placeholder for future implementation
+            warn!("Custom destination directory is not fully implemented yet");
+        }
+
+        // Handle no_pull option - if true, we'll skip the sync operation
+        if no_pull {
+            info!("Skipping pull for existing repositories");
+            // We'll just return success without syncing
+            println!("Skipping repository synchronization as requested");
+            return Ok(());
+        }
+
+        // Get credentials if needed (could be extracted from environment or config)
+        let credentials = None; // For now, we're not using credentials
+
+        // Handle parallel option
+        if let Some(threads) = parallel {
+            info!("Using {} threads for parallel operations", threads);
+            // Note: This would require implementing parallel sync operations
+            // This is a placeholder for future implementation
+            warn!("Parallel sync operations are not fully implemented yet");
+        }
+
+        // Synchronize all repositories
+        // Note: Currently the sync_repositories function doesn't support the force option
+        // We should modify it to pass the force option to the git operations
+        let results = if force {
+            info!("Force pulling repositories even if conflicts might occur");
+            // For now, we'll just log the option and use the regular sync
+            warn!("Force option is not fully implemented yet");
+            crate::repo::sync_repositories(&repo_manager, credentials)?
+        } else {
+            crate::repo::sync_repositories(&repo_manager, credentials)?
+        };
+
+        // Display results
+        let summary = crate::repo::get_sync_summary(&results);
+        info!("Sync completed: {}", summary);
+        println!("{}", summary);
 
         Ok(())
     }
