@@ -1,0 +1,42 @@
+[package]
+name = "mirror-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "SDK for managing mirror.toml files"
+authors = ["MirrorBoards Team"]
+license = "MIT"
+repository = "https://github.com/mirrorboards/mirror-sdk"
+documentation = "https://docs.rs/mirror-sdk"
+readme = "README.md"
+
+# Enable the crate to be part of a workspace
+[lib]
+name = "mirror_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+# Serialization/deserialization
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "1.0"
+
+# UUID generation for repository IDs
+uuid = { version = "1.4", features = ["v4", "fast-rng"] }
+
+# Logging
+log = "0.4"
+
+# Path manipulation and filesystem operations
+dirs = "5.0"  # For finding user directories
+
+# Optional dependencies
+dotenv = { version = "0.15", optional = true }
+
+[features]
+default = []
+env_config = ["dotenv"]  # Feature for loading config from environment variables
+
+[dev-dependencies]
+tempfile = "3.8"  # For creating temporary files/directories in tests
