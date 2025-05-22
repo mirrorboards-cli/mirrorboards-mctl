@@ -1,0 +1,5 @@
+[[repositories]]
+id = "c3fcf695"
+origin = "https://github.com/example/repo.git"
+path = "src/example"
+tags = ["example-tag"]

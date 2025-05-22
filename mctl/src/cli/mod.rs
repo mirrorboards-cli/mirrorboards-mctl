@@ -1,0 +1,60 @@
+//! CLI definition and parsing module
+//!
+//! This module defines the command-line interface for the mctl tool,
+//! including all commands, subcommands, arguments, and options.
+
+pub mod init;
+pub mod repo;
+pub mod tag;
+pub mod config;
+
+pub use init::*;
+pub use repo::*;
+pub use tag::*;
+pub use config::*;
+
+use clap::{Parser, Subcommand};
+
+/// Mirror Control (mctl) - CLI tool for managing mirror.toml files
+#[derive(Debug, Parser, Clone)]
+#[command(name = "mctl")]
+#[command(about = "Mirror Control CLI tool for managing mirror.toml files", long_about = None)]
+#[command(version)]
+#[command(propagate_version = true)]
+pub struct Cli {
+    /// Path to the mirror.toml file
+    #[arg(short, long, global = true)]
+    pub config: Option<String>,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    /// Enable quiet mode (minimal output)
+    #[arg(short, long, global = true)]
+    pub quiet: bool,
+
+    /// Control when to use colored output (always, auto, never)
+    #[arg(long, global = true, default_value = "auto")]
+    pub color: String,
+
+    /// Subcommand to execute
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+/// Subcommands for mctl
+#[derive(Debug, Subcommand, Clone)]
+pub enum Commands {
+    /// Initialize a new mirror.toml file
+    Init(init::InitArgs),
+
+    /// Manage repositories
+    Repo(repo::RepoArgs),
+
+    /// Manage repository tags
+    Tag(tag::TagArgs),
+
+    /// Manage configuration settings
+    Config(config::ConfigArgs),
+}
