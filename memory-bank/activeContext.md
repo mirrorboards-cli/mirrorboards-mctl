@@ -5,14 +5,17 @@ This file tracks the project's current status, including recent changes, current
 
 ## Current Focus
 
-* Analyzing the mirror-sdk to understand its capabilities and API
-* Designing the command structure for the mctl CLI tool
-* Planning the user experience for the CLI interface
-* Determining the implementation strategy and recommended frameworks
+* Enhancing the user experience of existing commands with better visual presentation
+* Improving the output format of commands to be more concise and visually appealing
+* Adding color coding and better formatting to make the output more readable
+* Implementing user-friendly options to customize command behavior
 
 ## Recent Changes
 
 * 2025-05-22 20:00:30 - Initialized Memory Bank for the mctl CLI design project
+* 2025-05-22 21:43:15 - Made mctl installable from cargo by updating Cargo.toml with proper metadata and dependency configuration
+* 2025-05-22 21:52:10 - Implemented new `status` command for mctl to show git status of all repositories defined in mirror.toml
+* 2025-05-22 21:58:43 - Enhanced the `status` command with improved visual presentation, including color coding, better formatting, and the option to hide clean repositories
 
 ## Open Questions/Issues
 

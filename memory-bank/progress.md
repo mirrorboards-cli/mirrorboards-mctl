@@ -51,3 +51,30 @@ This file tracks the project's progress using a task list format.
   * Integration approach with mirror-sdk
   * Project structure recommendation
   * Additional features beyond core SDK capabilities
+
+2025-05-22 21:42:59 - Made mctl installable from cargo.
+
+* Updated Cargo.toml to make mctl installable from cargo:
+  * Added metadata fields (repository, documentation, readme, keywords, categories)
+  * Added [[bin]] section to specify the binary name and path
+  * Configured mirror-sdk dependency for both development and publishing
+2025-05-22 21:51:54 - Implemented status command for mctl.
+
+* Added new `status` command to mctl:
+  * Created CLI interface in src/cli/status.rs
+  * Implemented command functionality in src/commands/status.rs
+  * Updated CLI and command modules to include the new status command
+  * Command shows git status of all repositories defined in mirror.toml
+  * Supports filtering repositories by tag
+  * Reports unified git status with full file paths relative to mirror.toml location
+2025-05-22 21:59:14 - Enhanced status command with improved visual presentation.
+
+* Enhanced the `status` command with improved visual presentation:
+  * Modified command to skip displaying repositories that are clean by default
+  * Added a new `--show-clean` flag to optionally display clean repositories
+  * Implemented color coding for different git status types
+  * Improved formatting with better indentation and visual cues
+  * Added emoji icons for better visual identification
+  * Included a status legend to help users understand the meaning of status codes
+  * Used different colors for staged vs. unstaged changes for better distinction
+  * Successfully tested local installation with `cargo install --path .`

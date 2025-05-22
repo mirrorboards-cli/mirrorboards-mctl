@@ -8,12 +8,14 @@ pub mod repo;
 pub mod tag;
 pub mod config;
 pub mod sync;
+pub mod status;
 
 pub use init::*;
 pub use repo::*;
 pub use tag::*;
 pub use config::*;
 pub use sync::*;
+pub use status::*;
 
 use clap::{Parser, Subcommand};
 
@@ -62,4 +64,7 @@ pub enum Commands {
 
     /// Sync repositories defined in mirror.toml
     Sync(sync::SyncArgs),
+
+    /// Show git status of repositories defined in mirror.toml
+    Status(status::StatusArgs),
 }
