@@ -100,7 +100,8 @@ pub fn execute(args: SaveArgs, formatter: &mut dyn OutputFormatter, config_path:
 
         formatter.info(&format!("Processing repository: {}", repo_name));
 
-        // Stage all changes (git add .)
+        // Stage all changes including untracked files (git add .)
+        formatter.info(&format!("Staging all files (including untracked) in {}", repo_name));
         let mut index = match git_repo.index() {
             Ok(index) => index,
             Err(e) => {
@@ -109,8 +110,9 @@ pub fn execute(args: SaveArgs, formatter: &mut dyn OutputFormatter, config_path:
             }
         };
 
-        // Add all files in working directory to index
-        if let Err(e) = index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None) {
+        // Add all files in working directory to index, including untracked and hidden files
+        // Use "." as pathspec to capture everything recursively, including hidden files/directories
+        if let Err(e) = index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None) {
             formatter.error(&format!("Failed to stage changes in {}: {}", repo_name, e));
             continue;
         }

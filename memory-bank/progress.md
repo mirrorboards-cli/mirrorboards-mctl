@@ -140,3 +140,11 @@ This file tracks the project's progress using a task list format.
 * Implementation follows established project patterns and integrates with existing codebase
 * Authentication system properly reused from sync command
 * Ready for production use
+2025-05-23 00:59:55 - Enhanced mctl save command to properly handle untracked files.
+
+* Fixed critical issue where untracked files (like .legacy/2025-05-23) were not being properly staged
+* Changed pathspec from ["*"] to ["."] in index.add_all() for complete file coverage
+* Added enhanced logging to indicate untracked files are being staged
+* Maintained all existing functionality: authentication, custom messages, tag filtering, error handling
+* Save command now performs complete git workflow: add (all files) → commit → push
+* Ensures hidden files and directories are properly included in git tracking
