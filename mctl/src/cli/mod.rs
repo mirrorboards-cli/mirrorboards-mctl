@@ -10,6 +10,7 @@ pub mod config;
 pub mod sync;
 pub mod status;
 pub mod diff;
+pub mod save;
 
 pub use init::*;
 pub use repo::*;
@@ -18,6 +19,7 @@ pub use config::*;
 pub use sync::*;
 pub use status::*;
 pub use diff::*;
+pub use save::*;
 
 use clap::{Parser, Subcommand};
 
@@ -72,4 +74,7 @@ pub enum Commands {
 
     /// Show git diffs across repositories defined in mirror.toml
     Diff(diff::DiffArgs),
+
+    /// Commit and push changes in repositories defined in mirror.toml
+    Save(save::SaveArgs),
 }
