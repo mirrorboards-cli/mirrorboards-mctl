@@ -1,0 +1,14 @@
+[[repositories]]
+origin = "git@github.com:example/repo1.git"
+branch = "main"
+branch-lock = false
+path = "example/repo1"
+tags = ["example"]
+
+[[repositories]]
+id = "repo2-id"
+origin = "git@github.com:example/repo2.git"
+branch = "develop"
+branch-lock = true
+path = "example/repo2"
+tags = ["example", "locked"]

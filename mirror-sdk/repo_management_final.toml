@@ -1,0 +1,14 @@
+[[repositories]]
+id = "frontend-main"
+origin = "git@github.com:example/frontend.git"
+branch = "develop"
+branch-lock = false
+path = "projects/frontend"
+tags = ["frontend", "development"]
+
+[[repositories]]
+origin = "git@github.com:example/api.git"
+branch = "main"
+branch-lock = false
+path = "projects/api"
+tags = ["backend", "api"]

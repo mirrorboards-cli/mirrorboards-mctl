@@ -1,0 +1,89 @@
+# Rustfmt configuration for the Mirror Workspace
+# See https://rust-lang.github.io/rustfmt/ for more options
+
+# Use 4 spaces for indentation
+tab_spaces = 4
+
+# Maximum width of each line
+max_width = 100
+
+# Use field initialization shorthand when possible
+use_field_init_shorthand = true
+
+# Merge imports from the same crate
+merge_imports = true
+
+# Format comments
+comment_width = 100
+
+# Format code blocks in doc comments
+format_code_in_doc_comments = true
+
+# Format macro invocations
+format_macro_matchers = true
+
+# Format macro bodies
+format_macro_bodies = true
+
+# Reorder imports
+reorder_imports = true
+
+# Group imports by type
+imports_granularity = "Module"
+
+# Reorder modules
+reorder_modules = true
+
+# Use Unix line endings
+newline_style = "Unix"
+
+# Wrap comments at the specified width
+wrap_comments = true
+
+# Format string literals where necessary
+format_strings = true
+
+# Format generated files
+format_generated_files = false
+
+# Use trailing commas for multiline lists
+trailing_comma = "Vertical"
+
+# Control brace style
+control_brace_style = "AlwaysSameLine"
+
+# Struct field alignment
+struct_field_align_threshold = 0
+
+# Enum variant alignment
+enum_discrim_align_threshold = 0
+
+# Where to put the closing brace for multiline expressions
+match_arm_blocks = true
+
+# Format match arms
+match_block_trailing_comma = false
+
+# Format array expressions
+array_width = 60
+
+# Format function calls
+fn_call_width = 60
+
+# Format function parameters
+fn_params_layout = "Tall"
+
+# Format function return type
+fn_single_line = false
+
+# Format impl items
+impl_empty_single_line = true
+
+# Format where clauses
+where_single_line = false
+
+# Format struct literals
+struct_lit_single_line = true
+
+# Format struct variant expressions
+struct_variant_width = 35

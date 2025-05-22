@@ -1,0 +1,13 @@
+[package]
+name = "mirror-workspace-examples"
+version = "0.1.0"
+edition = "2021"
+authors = ["MirrorBoards Team"]
+license = "MIT"
+publish = false
+description = "Examples for the Mirror SDK and CLI"
+
+[dependencies]
+mirror-sdk = { path = "mirror-sdk" }
+mirror-cli = { path = "mirror-cli" }
+tempfile = "3.8"
