@@ -5,7 +5,7 @@ A powerful command-line interface tool for managing mirror.toml configuration fi
 ## Quick Installation
 
 ```bash
-cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --path mctl --config net.git-fetch-with-cli=true
+cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
 ```
 
 ## Project Structure
