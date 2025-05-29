@@ -48,6 +48,7 @@ origin = "git@github.com:mirrorboards/mirrorboards-mctl.git"
 path = "mirrorboards/mirrorboards-mctl"
 
 [[repositories]]
+branch = "dev"
 origin = "git@github.com:mirrorboards/mirrorboards-mctl.git"
 path = "mirrorboards/mirrorboards-mctl-dev"
 
