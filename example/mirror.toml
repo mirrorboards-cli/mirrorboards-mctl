@@ -162,38 +162,47 @@ path = "pay2exchange/pay2exchange-genesis"
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/R-Squared-portal.git"
 path = "x-github-mirror/R-Squared-Project/R-Squared-portal"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/EES.git"
 path = "x-github-mirror/R-Squared-Project/EES"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/R-Squared-core.git"
 path = "x-github-mirror/R-Squared-Project/R-Squared-core"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/R-Squared-report.git"
 path = "x-github-mirror/R-Squared-Project/R-Squared-report"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/R-Squared-js.git"
 path = "x-github-mirror/R-Squared-Project/R-Squared-js"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/R-Squaredjs-ws.git"
 path = "x-github-mirror/R-Squared-Project/R-Squaredjs-ws"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:R-Squared-Project/SmartContract.git"
 path = "x-github-mirror/R-Squared-Project/SmartContract"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:bitshares/bitshares-ui.git"
 path = "x-github-mirror/bitshares/bitshares-ui"
+skip-push = true
 
 [[repositories]]
 origin = "git@github.com:bitshares/bitsharesjs.git"
 path = "x-github-mirror/bitshares/bitsharesjs"
+skip-push = true
 
 # [[repositories]]
 # origin = "git@github.com:bitshares/bitsharesjs.git"
