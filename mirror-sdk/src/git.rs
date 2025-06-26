@@ -60,57 +60,48 @@ impl GitManager {
         );
         progress_bar.set_message(format!("Cloning {}", repo.git));
         
-        // Setup Git builder with callbacks
-        let mut builder = git2::build::RepoBuilder::new();
-        
-        // Setup fetch options with authentication
-        let mut fetch_options = FetchOptions::new();
-        let mut callbacks = RemoteCallbacks::new();
-        
-        // Setup credentials callback with retry limits
-        let credentials_callback = self.setup_credentials_callback();
-        callbacks.credentials(credentials_callback);
-        
-        // Setup progress callback
-        callbacks.transfer_progress(|stats| {
-            let network_pct = (100 * stats.received_objects()) / stats.total_objects();
-            let index_pct = (100 * stats.indexed_objects()) / stats.total_objects();
-            let co_pct = if stats.total_objects() > 0 {
-                (100 * stats.received_objects()) / stats.total_objects()
-            } else {
-                0
-            };
-            let kbytes = stats.received_bytes() / 1024;
-            
-            progress_bar.set_position(std::cmp::max(network_pct, index_pct) as u64);
-            progress_bar.set_message(format!("net {network_pct}% ({kbytes} kb), idx {index_pct}%, chk {co_pct}%"));
-            true
-        });
-        
-        fetch_options.remote_callbacks(callbacks);
-        builder.fetch_options(fetch_options);
-        
-        // Set the branch if specified
+        // Try cloning with specific branch first (if not main/master)
         if repo.branch != "main" && repo.branch != "master" {
-            builder.branch(&repo.branch);
+            match self.clone_with_branch(repo, target_path, &progress_bar) {
+                Ok(()) => {
+                    progress_bar.finish_with_message(format!("Successfully cloned {} on branch {}", repo.git, repo.branch));
+                    println!("Repository cloned successfully to {} on branch {}", target_path.display(), repo.branch);
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Check if this is a branch-specific error
+                    if self.is_branch_error(&e) {
+                        println!("Branch '{}' not found remotely, falling back to default branch clone", repo.branch);
+                        progress_bar.set_message(format!("Fallback: cloning default branch for {}", repo.git));
+                    } else {
+                        // Not a branch error, propagate it
+                        progress_bar.finish_with_message("Clone failed");
+                        return Err(e);
+                    }
+                }
+            }
         }
         
-        // Perform the clone
-        let result = builder.clone(&repo.git, target_path);
-        
-        match result {
-            Ok(_) => {
+        // Fallback: Clone without specifying branch (gets default branch)
+        match self.clone_without_branch(repo, target_path, &progress_bar) {
+            Ok(repository) => {
+                // If we need a specific branch that's not main/master, create it locally
+                if repo.branch != "main" && repo.branch != "master" {
+                    if let Err(e) = self.create_local_branch(&repository, &repo.branch) {
+                        println!("Warning: Failed to create local branch '{}': {}", repo.branch, e);
+                        // Don't fail the entire operation, just log the warning
+                    } else {
+                        println!("Created and switched to local branch '{}'", repo.branch);
+                    }
+                }
+                
                 progress_bar.finish_with_message(format!("Successfully cloned {}", repo.git));
                 println!("Repository cloned successfully to {}", target_path.display());
                 Ok(())
             }
             Err(e) => {
                 progress_bar.finish_with_message("Clone failed");
-                Err(GitError::CloneFailed {
-                    url: repo.git.clone(),
-                    path: target_path.to_path_buf(),
-                    message: e.message().to_string(),
-                })
+                Err(e)
             }
         }
     }
@@ -293,6 +284,154 @@ impl GitManager {
             } else {
                 Ok(RepositoryStatus::NeedsUpdate)
             }
+        }
+    }
+    
+    /// Clone repository with specific branch
+    fn clone_with_branch(&self, repo: &RepoConfig, target_path: &Path, progress_bar: &ProgressBar) -> GitResult<()> {
+        // Setup Git builder with callbacks
+        let mut builder = git2::build::RepoBuilder::new();
+        
+        // Setup fetch options with authentication
+        let mut fetch_options = FetchOptions::new();
+        let mut callbacks = RemoteCallbacks::new();
+        
+        // Setup credentials callback with retry limits
+        let credentials_callback = self.setup_credentials_callback();
+        callbacks.credentials(credentials_callback);
+        
+        // Setup progress callback
+        callbacks.transfer_progress(|stats| {
+            let network_pct = (100 * stats.received_objects()) / stats.total_objects();
+            let index_pct = (100 * stats.indexed_objects()) / stats.total_objects();
+            let co_pct = if stats.total_objects() > 0 {
+                (100 * stats.received_objects()) / stats.total_objects()
+            } else {
+                0
+            };
+            let kbytes = stats.received_bytes() / 1024;
+            
+            progress_bar.set_position(std::cmp::max(network_pct, index_pct) as u64);
+            progress_bar.set_message(format!("net {network_pct}% ({kbytes} kb), idx {index_pct}%, chk {co_pct}%"));
+            true
+        });
+        
+        fetch_options.remote_callbacks(callbacks);
+        builder.fetch_options(fetch_options);
+        
+        // Set the specific branch
+        builder.branch(&repo.branch);
+        
+        // Perform the clone
+        match builder.clone(&repo.git, target_path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(GitError::CloneFailed {
+                url: repo.git.clone(),
+                path: target_path.to_path_buf(),
+                message: e.message().to_string(),
+            })
+        }
+    }
+    
+    /// Clone repository without specifying branch (gets default branch)
+    fn clone_without_branch(&self, repo: &RepoConfig, target_path: &Path, progress_bar: &ProgressBar) -> GitResult<Repository> {
+        // Setup Git builder with callbacks
+        let mut builder = git2::build::RepoBuilder::new();
+        
+        // Setup fetch options with authentication
+        let mut fetch_options = FetchOptions::new();
+        let mut callbacks = RemoteCallbacks::new();
+        
+        // Setup credentials callback with retry limits
+        let credentials_callback = self.setup_credentials_callback();
+        callbacks.credentials(credentials_callback);
+        
+        // Setup progress callback
+        callbacks.transfer_progress(|stats| {
+            let network_pct = (100 * stats.received_objects()) / stats.total_objects();
+            let index_pct = (100 * stats.indexed_objects()) / stats.total_objects();
+            let co_pct = if stats.total_objects() > 0 {
+                (100 * stats.received_objects()) / stats.total_objects()
+            } else {
+                0
+            };
+            let kbytes = stats.received_bytes() / 1024;
+            
+            progress_bar.set_position(std::cmp::max(network_pct, index_pct) as u64);
+            progress_bar.set_message(format!("net {network_pct}% ({kbytes} kb), idx {index_pct}%, chk {co_pct}%"));
+            true
+        });
+        
+        fetch_options.remote_callbacks(callbacks);
+        builder.fetch_options(fetch_options);
+        
+        // Don't set a specific branch - let it use the default
+        
+        // Perform the clone
+        match builder.clone(&repo.git, target_path) {
+            Ok(repository) => Ok(repository),
+            Err(e) => Err(GitError::CloneFailed {
+                url: repo.git.clone(),
+                path: target_path.to_path_buf(),
+                message: e.message().to_string(),
+            })
+        }
+    }
+    
+    /// Create a local branch and switch to it
+    fn create_local_branch(&self, repository: &Repository, branch_name: &str) -> GitResult<()> {
+        // Get the current HEAD commit
+        let head_commit = repository.head()
+            .map_err(|e| GitError::InvalidState {
+                message: format!("Failed to get HEAD: {}", e)
+            })?
+            .peel_to_commit()
+            .map_err(|e| GitError::InvalidState {
+                message: format!("Failed to get HEAD commit: {}", e)
+            })?;
+        
+        // Check if branch already exists locally
+        let branch_ref_name = format!("refs/heads/{}", branch_name);
+        if repository.find_reference(&branch_ref_name).is_ok() {
+            // Branch exists, just switch to it
+            println!("Local branch '{}' already exists, switching to it", branch_name);
+        } else {
+            // Create the new branch
+            repository.branch(branch_name, &head_commit, false)
+                .map_err(|e| GitError::OperationFailed {
+                    message: format!("Failed to create branch '{}': {}", branch_name, e)
+                })?;
+            
+            println!("Created local branch '{}'", branch_name);
+        }
+        
+        // Switch to the branch
+        repository.set_head(&branch_ref_name)
+            .map_err(|e| GitError::InvalidState {
+                message: format!("Failed to set HEAD to branch '{}': {}", branch_name, e)
+            })?;
+        
+        // Update working directory to match the branch
+        repository.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to checkout branch '{}': {}", branch_name, e)
+            })?;
+        
+        Ok(())
+    }
+    
+    /// Check if the error is related to branch not existing
+    fn is_branch_error(&self, error: &GitError) -> bool {
+        match error {
+            GitError::CloneFailed { message, .. } => {
+                // Common patterns for branch-related errors
+                message.contains("Remote branch") ||
+                message.contains("not found") ||
+                message.contains("does not exist") ||
+                message.contains("couldn't find remote ref") ||
+                message.contains("reference is not valid")
+            }
+            _ => false,
         }
     }
     
