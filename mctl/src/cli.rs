@@ -94,6 +94,13 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    
+    /// Show git status of all repositories
+    Status {
+        /// Show detailed status information
+        #[arg(short, long)]
+        detailed: bool,
+    },
 }
 
 impl Cli {
@@ -143,6 +150,13 @@ mod tests {
             assert!(force);
         } else {
             panic!("Expected Sync command");
+        }
+        
+        let cli = Cli::try_parse_from(&["mctl", "status", "--detailed"]).unwrap();
+        if let Commands::Status { detailed } = cli.command {
+            assert!(detailed);
+        } else {
+            panic!("Expected Status command");
         }
     }
     

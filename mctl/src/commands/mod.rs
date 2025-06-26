@@ -5,6 +5,7 @@ pub mod init;
 pub mod list;
 pub mod remove;
 pub mod show;
+pub mod status;
 pub mod sync;
 pub mod validate;
 
@@ -13,6 +14,7 @@ pub use init::InitCommand;
 pub use list::ListCommand;
 pub use remove::RemoveCommand;
 pub use show::ShowCommand;
+pub use status::StatusCommand;
 pub use sync::SyncCommand;
 pub use validate::ValidateCommand;
 

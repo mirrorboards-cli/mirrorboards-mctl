@@ -32,6 +32,45 @@ pub enum RepositoryStatus {
     HasConflicts,
 }
 
+/// Detailed file status information
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStatus {
+    /// File path relative to repository root
+    pub path: String,
+    /// Status of the file in the working directory
+    pub working_dir_status: FileChangeType,
+    /// Status of the file in the index (staging area)
+    pub index_status: FileChangeType,
+}
+
+/// Type of change for a file
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileChangeType {
+    /// File is unmodified
+    Unmodified,
+    /// File is new/untracked
+    New,
+    /// File is modified
+    Modified,
+    /// File is deleted
+    Deleted,
+    /// File is renamed
+    Renamed,
+    /// File is copied
+    Copied,
+    /// File is ignored
+    Ignored,
+}
+
+/// Detailed repository status including file-level changes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailedRepositoryStatus {
+    /// Overall repository status
+    pub status: RepositoryStatus,
+    /// List of files with changes (only populated if repository has git status)
+    pub files: Vec<FileStatus>,
+}
+
 impl GitManager {
     /// Create a new GitManager with SSH authentication support
     pub fn new() -> GitResult<Self> {
@@ -275,8 +314,8 @@ impl GitManager {
         } else {
             // Check if local has uncommitted changes
             let statuses = repo.statuses(None)
-                .map_err(|e| GitError::OperationFailed { 
-                    message: format!("Failed to get repository status: {}", e) 
+                .map_err(|e| GitError::OperationFailed {
+                    message: format!("Failed to get repository status: {}", e)
                 })?;
             
             if !statuses.is_empty() {
@@ -285,6 +324,120 @@ impl GitManager {
                 Ok(RepositoryStatus::NeedsUpdate)
             }
         }
+    }
+    
+    /// Get detailed repository status including file-level changes
+    pub fn get_detailed_repository_status(&self, repo_path: &Path) -> GitResult<DetailedRepositoryStatus> {
+        // Check if path exists
+        if !repo_path.exists() {
+            return Ok(DetailedRepositoryStatus {
+                status: RepositoryStatus::Missing,
+                files: Vec::new(),
+            });
+        }
+        
+        // Check if it's a git repository
+        let repo = match Repository::open(repo_path) {
+            Ok(repo) => repo,
+            Err(_) => return Ok(DetailedRepositoryStatus {
+                status: RepositoryStatus::NotGitRepository,
+                files: Vec::new(),
+            }),
+        };
+        
+        // Get current HEAD
+        let head = match repo.head() {
+            Ok(head) => head,
+            Err(_) => return Ok(DetailedRepositoryStatus {
+                status: RepositoryStatus::NotGitRepository,
+                files: Vec::new(),
+            }),
+        };
+        
+        let local_oid = match head.target() {
+            Some(oid) => oid,
+            None => return Ok(DetailedRepositoryStatus {
+                status: RepositoryStatus::NotGitRepository,
+                files: Vec::new(),
+            }),
+        };
+        
+        // Get file status information
+        let statuses = repo.statuses(None)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository status: {}", e)
+            })?;
+        
+        let mut files = Vec::new();
+        for entry in statuses.iter() {
+            if let Some(path) = entry.path() {
+                let status = entry.status();
+                
+                // Convert git2::Status flags to our FileChangeType
+                let working_dir_status = if status.is_wt_new() {
+                    FileChangeType::New
+                } else if status.is_wt_modified() {
+                    FileChangeType::Modified
+                } else if status.is_wt_deleted() {
+                    FileChangeType::Deleted
+                } else if status.is_wt_renamed() {
+                    FileChangeType::Renamed
+                } else if status.is_ignored() {
+                    FileChangeType::Ignored
+                } else {
+                    FileChangeType::Unmodified
+                };
+                
+                let index_status = if status.is_index_new() {
+                    FileChangeType::New
+                } else if status.is_index_modified() {
+                    FileChangeType::Modified
+                } else if status.is_index_deleted() {
+                    FileChangeType::Deleted
+                } else if status.is_index_renamed() {
+                    FileChangeType::Renamed
+                } else {
+                    FileChangeType::Unmodified
+                };
+                
+                files.push(FileStatus {
+                    path: path.to_string(),
+                    working_dir_status,
+                    index_status,
+                });
+            }
+        }
+        
+        // Try to get remote tracking branch
+        let branch_name = head.shorthand().unwrap_or("HEAD");
+        let remote_branch_name = format!("refs/remotes/origin/{}", branch_name);
+        
+        let remote_oid = match repo.refname_to_id(&remote_branch_name) {
+            Ok(oid) => oid,
+            Err(_) => {
+                // No remote tracking branch, assume up to date
+                return Ok(DetailedRepositoryStatus {
+                    status: RepositoryStatus::UpToDate,
+                    files,
+                });
+            }
+        };
+        
+        // Determine overall status
+        let status = if local_oid == remote_oid {
+            RepositoryStatus::UpToDate
+        } else {
+            if !statuses.is_empty() {
+                RepositoryStatus::HasConflicts
+            } else {
+                RepositoryStatus::NeedsUpdate
+            }
+        };
+        
+        Ok(DetailedRepositoryStatus {
+            status,
+            files,
+        })
     }
     
     /// Clone repository with specific branch

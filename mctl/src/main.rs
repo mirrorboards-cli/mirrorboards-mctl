@@ -80,6 +80,11 @@ fn run(args: Cli) -> Result<()> {
             let command = SyncCommand { dry_run, pull, force };
             command.execute(&config_manager, verbose)
         },
+        
+        Commands::Status { detailed } => {
+            let command = StatusCommand { detailed };
+            command.execute(&config_manager, verbose)
+        },
     }
 }
 
@@ -242,5 +247,47 @@ mod tests {
             verbose: false,
         };
         run(sync_args).unwrap();
+    }
+    
+    #[test]
+    fn test_status_command_integration() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_path = temp_file.path().to_string_lossy().to_string();
+        
+        // Initialize and add repository
+        let init_args = Cli {
+            command: Commands::Init { force: false },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(init_args).unwrap();
+        
+        let add_args = Cli {
+            command: Commands::Add {
+                git_url: "git@github.com:org/repo.git".to_string(),
+                path: None,
+                branch: None,
+                skip_push: false,
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(add_args).unwrap();
+        
+        // Test status command
+        let status_args = Cli {
+            command: Commands::Status { detailed: false },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(status_args).unwrap();
+        
+        // Test detailed status command
+        let detailed_status_args = Cli {
+            command: Commands::Status { detailed: true },
+            config: Some(config_path),
+            verbose: false,
+        };
+        run(detailed_status_args).unwrap();
     }
 }
