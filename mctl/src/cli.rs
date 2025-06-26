@@ -115,6 +115,10 @@ pub enum Commands {
         /// Show detailed repository information
         #[arg(short, long)]
         detailed: bool,
+        
+        /// Disable colored output
+        #[arg(long)]
+        no_color: bool,
     },
 }
 
@@ -174,11 +178,12 @@ mod tests {
             panic!("Expected Status command");
         }
         
-        let cli = Cli::try_parse_from(&["mctl", "diff", "--staged", "--all", "--detailed"]).unwrap();
-        if let Commands::Diff { staged, all, detailed } = cli.command {
+        let cli = Cli::try_parse_from(&["mctl", "diff", "--staged", "--all", "--detailed", "--no-color"]).unwrap();
+        if let Commands::Diff { staged, all, detailed, no_color } = cli.command {
             assert!(staged);
             assert!(all);
             assert!(detailed);
+            assert!(no_color);
         } else {
             panic!("Expected Diff command");
         }

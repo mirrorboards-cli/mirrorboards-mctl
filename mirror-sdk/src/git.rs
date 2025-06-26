@@ -461,12 +461,42 @@ impl GitManager {
             Err(_) => return Ok(None),
         };
         
-        // Get diff between HEAD and working directory
+        // Refresh git index to ensure synchronization
+        let mut index = repo.index()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository index: {}", e)
+            })?;
+        
+        // Force index refresh from disk
+        index.read(true)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to refresh git index: {}", e)
+            })?;
+        
+        // Get the current HEAD tree explicitly
+        let head_tree = match repo.head() {
+            Ok(head) => {
+                let head_commit = head.peel_to_commit()
+                    .map_err(|e| GitError::OperationFailed {
+                        message: format!("Failed to get HEAD commit: {}", e)
+                    })?;
+                Some(head_commit.tree()
+                    .map_err(|e| GitError::OperationFailed {
+                        message: format!("Failed to get HEAD tree: {}", e)
+                    })?)
+            }
+            Err(_) => None, // No HEAD (empty repository)
+        };
+        
+        // Get diff between HEAD and working directory with proper options
         let mut diff_options = DiffOptions::new();
         diff_options.context_lines(3);
         diff_options.interhunk_lines(0);
+        // Ignore whitespace and line ending issues to prevent false positives
+        diff_options.ignore_whitespace_change(true);
+        diff_options.ignore_whitespace_eol(true);
         
-        let diff = repo.diff_tree_to_workdir_with_index(None, Some(&mut diff_options))
+        let diff = repo.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut diff_options))
             .map_err(|e| GitError::OperationFailed {
                 message: format!("Failed to get working directory diff: {}", e)
             })?;
@@ -486,6 +516,18 @@ impl GitManager {
             Err(_) => return Ok(None),
         };
         
+        // Refresh git index to ensure synchronization
+        let mut index = repo.index()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository index: {}", e)
+            })?;
+        
+        // Force index refresh from disk
+        index.read(true)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to refresh git index: {}", e)
+            })?;
+        
         // Get the current HEAD tree
         let head_tree = match repo.head() {
             Ok(head) => {
@@ -501,10 +543,13 @@ impl GitManager {
             Err(_) => None, // No HEAD (empty repository)
         };
         
-        // Get diff between HEAD and index
+        // Get diff between HEAD and index with proper options
         let mut diff_options = DiffOptions::new();
         diff_options.context_lines(3);
         diff_options.interhunk_lines(0);
+        // Ignore whitespace and line ending issues to prevent false positives
+        diff_options.ignore_whitespace_change(true);
+        diff_options.ignore_whitespace_eol(true);
         
         let diff = repo.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut diff_options))
             .map_err(|e| GitError::OperationFailed {

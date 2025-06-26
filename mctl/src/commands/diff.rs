@@ -6,11 +6,90 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::BTreeMap;
+use colored::*;
+use std::env;
+use std::io::{self, IsTerminal};
 
 pub struct DiffCommand {
     pub staged: bool,
     pub all: bool,
     pub detailed: bool,
+    pub no_color: bool,
+}
+
+impl DiffCommand {
+    /// Determine if colors should be used based on environment and flags
+    fn should_use_color(&self) -> bool {
+        // Check --no-color flag first
+        if self.no_color {
+            return false;
+        }
+        
+        // Check NO_COLOR environment variable
+        if env::var("NO_COLOR").is_ok() {
+            return false;
+        }
+        
+        // Check if stdout is a terminal
+        io::stdout().is_terminal()
+    }
+    
+    /// Format diff output with colors
+    fn format_diff_with_colors(&self, diff_content: &str) -> String {
+        if !self.should_use_color() {
+            return diff_content.to_string();
+        }
+        
+        diff_content
+            .lines()
+            .map(|line| self.colorize_diff_line(line))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    
+    /// Apply color formatting to a single diff line
+    fn colorize_diff_line(&self, line: &str) -> String {
+        if line.starts_with("diff --git") {
+            // File header - white/bold
+            line.white().bold().to_string()
+        } else if line.starts_with("index ") {
+            // Index line - white
+            line.white().to_string()
+        } else if line.starts_with("--- ") || line.starts_with("+++ ") {
+            // File path lines - white
+            line.white().to_string()
+        } else if line.starts_with("@@") && line.ends_with("@@") {
+            // Hunk header - magenta
+            line.magenta().to_string()
+        } else if line.starts_with('+') {
+            // Added lines - green
+            line.green().to_string()
+        } else if line.starts_with('-') {
+            // Removed lines - red
+            line.red().to_string()
+        } else {
+            // Context lines - normal color
+            line.to_string()
+        }
+    }
+    
+    /// Format repository header with color
+    fn format_repository_header(&self, repo_path: &str) -> String {
+        if self.should_use_color() {
+            format!("Repository: {}", repo_path.cyan())
+        } else {
+            format!("Repository: {}", repo_path)
+        }
+    }
+    
+    /// Format section header with color
+    fn format_section_header(&self, header: &str) -> String {
+        if self.should_use_color() {
+            header.yellow().to_string()
+        } else {
+            header.to_string()
+        }
+    }
 }
 
 impl Command for DiffCommand {
@@ -142,7 +221,7 @@ impl Command for DiffCommand {
                     .find(|r| r.path == *repo_path);
                 
                 println!();
-                println!("Repository: {}", repo_path);
+                println!("{}", self.format_repository_header(repo_path));
                 
                 if self.detailed {
                     if let Some(config) = repo_config {
@@ -156,9 +235,9 @@ impl Command for DiffCommand {
                 if !self.staged && (self.all || !self.staged) {
                     if let Some(ref working_diff) = diff.working_diff {
                         if self.all && diff.staged_diff.is_some() {
-                            println!("Working Directory Changes:");
+                            println!("{}", self.format_section_header("Working Directory Changes:"));
                         }
-                        println!("{}", working_diff);
+                        println!("{}", self.format_diff_with_colors(working_diff));
                     }
                 }
                 
@@ -166,9 +245,9 @@ impl Command for DiffCommand {
                 if self.staged || self.all {
                     if let Some(ref staged_diff) = diff.staged_diff {
                         if self.all && diff.working_diff.is_some() {
-                            println!("Staged Changes:");
+                            println!("{}", self.format_section_header("Staged Changes:"));
                         }
-                        println!("{}", staged_diff);
+                        println!("{}", self.format_diff_with_colors(staged_diff));
                     }
                 }
             }
@@ -189,13 +268,8 @@ impl Command for DiffCommand {
         
         if verbose {
             println!();
-            let diff_type = match (self.staged, self.all) {
-                (true, false) => "staged",
-                (false, true) => "all",
-                _ => "working directory",
-            };
-            println!("Use 'mctl diff --{}' for different change types", 
-                if self.staged { "all" } else if self.all { "staged" } else { "staged" });
+            let next_diff_type = if self.staged { "all" } else if self.all { "staged" } else { "staged" };
+            println!("Use 'mctl diff --{}' for different change types", next_diff_type);
             println!("Use 'mctl status' to see repository status information");
         }
         
@@ -230,10 +304,11 @@ mod tests {
         // Create empty config
         config_manager.create_empty().unwrap();
         
-        let diff_command = DiffCommand { 
-            staged: false, 
-            all: false, 
-            detailed: false 
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
         };
         
         // Should not error on empty config
@@ -249,10 +324,11 @@ mod tests {
         drop(temp_file);
         
         let config_manager = ConfigManager::new(&temp_path);
-        let diff_command = DiffCommand { 
-            staged: false, 
-            all: false, 
-            detailed: false 
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
         };
         
         // Should not error on missing config
@@ -271,10 +347,11 @@ mod tests {
         config_manager.add_repository(repo1).unwrap();
         config_manager.add_repository(repo2).unwrap();
         
-        let diff_command = DiffCommand { 
-            staged: false, 
-            all: false, 
-            detailed: false 
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
         };
         diff_command.execute(&config_manager, false).unwrap();
     }
@@ -288,10 +365,11 @@ mod tests {
         let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
         config_manager.add_repository(repo).unwrap();
         
-        let diff_command = DiffCommand { 
-            staged: true, 
-            all: false, 
-            detailed: false 
+        let diff_command = DiffCommand {
+            staged: true,
+            all: false,
+            detailed: false,
+            no_color: false,
         };
         diff_command.execute(&config_manager, false).unwrap();
     }
@@ -305,10 +383,11 @@ mod tests {
         let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
         config_manager.add_repository(repo).unwrap();
         
-        let diff_command = DiffCommand { 
-            staged: false, 
-            all: true, 
-            detailed: false 
+        let diff_command = DiffCommand {
+            staged: false,
+            all: true,
+            detailed: false,
+            no_color: false,
         };
         diff_command.execute(&config_manager, false).unwrap();
     }
@@ -322,10 +401,11 @@ mod tests {
         let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
         config_manager.add_repository(repo).unwrap();
         
-        let diff_command = DiffCommand { 
-            staged: false, 
-            all: false, 
-            detailed: true 
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: true,
+            no_color: false,
         };
         diff_command.execute(&config_manager, false).unwrap();
     }

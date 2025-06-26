@@ -86,8 +86,8 @@ fn run(args: Cli) -> Result<()> {
             command.execute(&config_manager, verbose)
         },
         
-        Commands::Diff { staged, all, detailed } => {
-            let command = DiffCommand { staged, all, detailed };
+        Commands::Diff { staged, all, detailed, no_color } => {
+            let command = DiffCommand { staged, all, detailed, no_color };
             command.execute(&config_manager, verbose)
         },
     }
@@ -326,7 +326,8 @@ mod tests {
             command: Commands::Diff {
                 staged: false,
                 all: false,
-                detailed: false
+                detailed: false,
+                no_color: false,
             },
             config: Some(config_path.clone()),
             verbose: false,
@@ -338,7 +339,8 @@ mod tests {
             command: Commands::Diff {
                 staged: true,
                 all: false,
-                detailed: false
+                detailed: false,
+                no_color: false,
             },
             config: Some(config_path.clone()),
             verbose: false,
@@ -350,7 +352,8 @@ mod tests {
             command: Commands::Diff {
                 staged: false,
                 all: true,
-                detailed: true
+                detailed: true,
+                no_color: false,
             },
             config: Some(config_path),
             verbose: false,
