@@ -90,6 +90,11 @@ fn run(args: Cli) -> Result<()> {
             let command = DiffCommand { staged, all, detailed, no_color };
             command.execute(&config_manager, verbose)
         },
+        
+        Commands::Save { message } => {
+            let command = SaveCommand { message };
+            command.execute(&config_manager, verbose)
+        },
     }
 }
 
@@ -359,5 +364,49 @@ mod tests {
             verbose: false,
         };
         run(diff_all_args).unwrap();
+    }
+    
+    #[test]
+    fn test_save_command_integration() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_path = temp_file.path().to_string_lossy().to_string();
+        
+        // Initialize and add repository
+        let init_args = Cli {
+            command: Commands::Init { force: false },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(init_args).unwrap();
+        
+        let add_args = Cli {
+            command: Commands::Add {
+                git_url: "git@github.com:org/repo.git".to_string(),
+                path: None,
+                branch: None,
+                skip_push: false,
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(add_args).unwrap();
+        
+        // Test save command without custom message
+        let save_args = Cli {
+            command: Commands::Save { message: None },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(save_args).unwrap();
+        
+        // Test save command with custom message
+        let save_with_message_args = Cli {
+            command: Commands::Save {
+                message: Some("Custom commit message".to_string())
+            },
+            config: Some(config_path),
+            verbose: false,
+        };
+        run(save_with_message_args).unwrap();
     }
 }

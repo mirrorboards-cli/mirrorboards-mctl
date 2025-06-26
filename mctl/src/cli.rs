@@ -120,6 +120,12 @@ pub enum Commands {
         #[arg(long)]
         no_color: bool,
     },
+    
+    /// Save changes with git add, commit, and push
+    Save {
+        /// Custom commit message (defaults to "save YYYY-MM-DD HH:MM:SS UTC")
+        message: Option<String>,
+    },
 }
 
 impl Cli {
@@ -186,6 +192,20 @@ mod tests {
             assert!(no_color);
         } else {
             panic!("Expected Diff command");
+        }
+        
+        let cli = Cli::try_parse_from(&["mctl", "save"]).unwrap();
+        if let Commands::Save { message } = cli.command {
+            assert!(message.is_none());
+        } else {
+            panic!("Expected Save command");
+        }
+        
+        let cli = Cli::try_parse_from(&["mctl", "save", "my custom commit message"]).unwrap();
+        if let Commands::Save { message } = cli.command {
+            assert_eq!(message, Some("my custom commit message".to_string()));
+        } else {
+            panic!("Expected Save command");
         }
     }
     

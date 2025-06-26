@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 mirror-sdk = { path = "../mirror-sdk" }
 anyhow.workspace = true
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.0", features = ["derive"] }
 colored = "2.0"
 dialoguer = "0.11"

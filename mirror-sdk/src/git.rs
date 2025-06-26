@@ -575,6 +575,214 @@ impl GitManager {
         })
     }
     
+    /// Stage all changes (equivalent to `git add --all`)
+    pub fn add_all(&self, repo_path: &Path) -> GitResult<()> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Err(GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            });
+        }
+        
+        let repo = Repository::open(repo_path)
+            .map_err(|_e| GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            })?;
+        
+        // Get the repository index
+        let mut index = repo.index()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository index: {}", e)
+            })?;
+        
+        // Add all files to the index (including untracked files)
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to add files to index: {}", e)
+            })?;
+        
+        // Write the index changes to disk
+        index.write()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to write index: {}", e)
+            })?;
+        
+        println!("Successfully staged all changes");
+        Ok(())
+    }
+    
+    /// Create a commit with the provided message
+    pub fn commit(&self, repo_path: &Path, message: &str) -> GitResult<()> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Err(GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            });
+        }
+        
+        let repo = Repository::open(repo_path)
+            .map_err(|_e| GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            })?;
+        
+        // Get the repository index
+        let mut index = repo.index()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository index: {}", e)
+            })?;
+        
+        // Check if there are any staged changes
+        let tree_id = index.write_tree()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to write tree: {}", e)
+            })?;
+        
+        let tree = repo.find_tree(tree_id)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to find tree: {}", e)
+            })?;
+        
+        // Get current HEAD commit (if it exists)
+        let head_commit = match repo.head() {
+            Ok(head) => {
+                Some(head.peel_to_commit()
+                    .map_err(|e| GitError::OperationFailed {
+                        message: format!("Failed to get HEAD commit: {}", e)
+                    })?)
+            }
+            Err(_) => None, // First commit (no HEAD yet)
+        };
+        
+        // Create signature for the commit
+        let config = repo.config()
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get repository config: {}", e)
+            })?;
+        
+        // Try to get user name and email from config
+        let name = config.get_string("user.name").unwrap_or_else(|_| "Mirror User".to_string());
+        let email = config.get_string("user.email").unwrap_or_else(|_| "mirror@example.com".to_string());
+        
+        let signature = git2::Signature::now(&name, &email)
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to create commit signature: {}", e)
+            })?;
+        
+        // Create the commit
+        let parents: Vec<&git2::Commit> = match &head_commit {
+            Some(commit) => vec![commit],
+            None => vec![], // First commit has no parents
+        };
+        
+        let commit_oid = repo.commit(
+            Some("HEAD"), // Update HEAD reference
+            &signature,   // Author
+            &signature,   // Committer (same as author)
+            message,      // Commit message
+            &tree,        // Tree to commit
+            &parents      // Parent commits
+        ).map_err(|e| GitError::OperationFailed {
+            message: format!("Failed to create commit: {}", e)
+        })?;
+        
+        println!("Successfully created commit: {}", commit_oid);
+        Ok(())
+    }
+    
+    /// Push commits to the current branch on remote
+    pub fn push_to_current_branch(&self, repo_path: &Path) -> GitResult<()> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Err(GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            });
+        }
+        
+        let repo = Repository::open(repo_path)
+            .map_err(|_e| GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            })?;
+        
+        // Get the current branch
+        let head = repo.head()
+            .map_err(|e| GitError::InvalidState {
+                message: format!("Failed to get HEAD (detached HEAD?): {}", e)
+            })?;
+        
+        let branch_name = head.shorthand()
+            .ok_or_else(|| GitError::InvalidState {
+                message: "Failed to get current branch name".to_string()
+            })?;
+        
+        println!("Pushing branch: {}", branch_name);
+        
+        // Get the origin remote
+        let mut remote = repo.find_remote("origin")
+            .map_err(|e| GitError::RemoteFailed {
+                message: format!("Failed to find origin remote: {}", e)
+            })?;
+        
+        // Setup push options with authentication
+        let mut push_options = git2::PushOptions::new();
+        let mut callbacks = RemoteCallbacks::new();
+        
+        // Setup credentials callback
+        let credentials_callback = self.setup_credentials_callback();
+        callbacks.credentials(credentials_callback);
+        
+        // Setup push progress callback
+        callbacks.push_update_reference(|refname, status| {
+            match status {
+                Some(msg) => println!("Failed to push {}: {}", refname, msg),
+                None => println!("Successfully pushed {}", refname),
+            }
+            Ok(())
+        });
+        
+        push_options.remote_callbacks(callbacks);
+        
+        // Create refspec for current branch
+        let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+        
+        // Perform the push
+        remote.push(&[&refspec], Some(&mut push_options))
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to push to remote: {}", e)
+            })?;
+        
+        println!("Successfully pushed branch '{}' to origin", branch_name);
+        Ok(())
+    }
+    
+    /// Get the name of the current branch
+    pub fn get_current_branch(&self, repo_path: &Path) -> GitResult<String> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Err(GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            });
+        }
+        
+        let repo = Repository::open(repo_path)
+            .map_err(|_e| GitError::RepositoryNotFound {
+                path: repo_path.to_path_buf()
+            })?;
+        
+        // Get the current HEAD reference
+        let head = repo.head()
+            .map_err(|e| GitError::InvalidState {
+                message: format!("Failed to get HEAD (detached HEAD?): {}", e)
+            })?;
+        
+        // Get the branch name
+        let branch_name = head.shorthand()
+            .ok_or_else(|| GitError::InvalidState {
+                message: "Repository is in detached HEAD state".to_string()
+            })?;
+        
+        Ok(branch_name.to_string())
+    }
+    
     /// Format a git2::Diff into a string representation
     fn format_diff(&self, diff: Diff) -> GitResult<Option<String>> {
         let mut diff_output = Vec::<u8>::new();
