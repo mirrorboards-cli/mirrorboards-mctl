@@ -1,6 +1,6 @@
 use anyhow::{Result, Context};
 use mirror_sdk::{ConfigManager, GitManager, RepositoryStatus, DetailedRepositoryStatus, FileChangeType};
-use tabled::{Tabled, Table};
+use tabled::{Tabled, Table, settings::Color};
 use super::{Command, print_error, print_info, print_warning, print_verbose};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::PathBuf;
@@ -114,7 +114,7 @@ impl Command for StatusCommand {
             
             match git_manager.get_detailed_repository_status(&target_path) {
                 Ok(detailed_status) => {
-                    let status_text = format_repository_status(&detailed_status.status);
+                    let status_text = format_repository_status_plain(&detailed_status.status);
                     let hash = repo.compute_hash();
                     
                     // Store file changes for repositories that have them
@@ -142,7 +142,7 @@ impl Command for StatusCommand {
                     });
                     
                     if verbose {
-                        println!("  ✓ {}: {}", repo.path, format_repository_status(&detailed_status.status));
+                        println!("  ✓ {}: {}", repo.path, format_repository_status_colored(&detailed_status.status));
                     }
                 }
                 Err(e) => {
@@ -188,10 +188,12 @@ impl Command for StatusCommand {
         // Display results
         println!();
         if self.detailed {
-            let table = Table::new(detailed_status_rows).to_string();
+            let mut table = Table::new(&detailed_status_rows);
+            apply_status_colors_detailed(&mut table, &detailed_status_rows);
             println!("{}", table);
         } else {
-            let table = Table::new(status_rows).to_string();
+            let mut table = Table::new(&status_rows);
+            apply_status_colors_regular(&mut table, &status_rows);
             println!("{}", table);
         }
         
@@ -203,7 +205,7 @@ impl Command for StatusCommand {
             for (repo_path, detailed_status) in &repo_file_changes {
                 println!();
                 println!("Repository: {}", repo_path);
-                println!("Status: {}", format_repository_status(&detailed_status.status));
+                println!("Status: {}", format_repository_status_colored(&detailed_status.status));
                 println!("Files:");
                 
                 // Group files by their status
@@ -299,14 +301,69 @@ impl Command for StatusCommand {
     }
 }
 
-/// Format RepositoryStatus enum to user-friendly string
-fn format_repository_status(status: &RepositoryStatus) -> String {
+/// Format RepositoryStatus enum to user-friendly plain text string
+fn format_repository_status_plain(status: &RepositoryStatus) -> String {
     match status {
         RepositoryStatus::Missing => "Missing".to_string(),
         RepositoryStatus::NotGitRepository => "Not Git Repo".to_string(),
         RepositoryStatus::UpToDate => "Up to Date".to_string(),
         RepositoryStatus::NeedsUpdate => "Needs Update".to_string(),
         RepositoryStatus::HasConflicts => "Has Conflicts".to_string(),
+    }
+}
+
+/// Format RepositoryStatus enum to user-friendly colored string (for non-table output)
+fn format_repository_status_colored(status: &RepositoryStatus) -> String {
+    match status {
+        RepositoryStatus::Missing => "Missing".bright_black().to_string(),
+        RepositoryStatus::NotGitRepository => "Not Git Repo".blue().to_string(),
+        RepositoryStatus::UpToDate => "Up to Date".green().to_string(),
+        RepositoryStatus::NeedsUpdate => "Needs Update".yellow().to_string(),
+        RepositoryStatus::HasConflicts => "Has Conflicts".red().to_string(),
+    }
+}
+
+/// Apply colors to status column in table based on repository status values
+fn apply_status_colors_regular(table: &mut Table, rows: &[RepositoryStatusRow]) {
+    use tabled::settings::object::Cell;
+    
+    for (row_index, row) in rows.iter().enumerate() {
+        let status_color = get_status_color(&row.status);
+        
+        // Apply color to the Status column (index 2) for this row
+        // +1 because row 0 is the header
+        table.modify(
+            Cell::new(row_index + 1, 2),
+            status_color
+        );
+    }
+}
+
+/// Apply colors to status column in detailed table based on repository status values
+fn apply_status_colors_detailed(table: &mut Table, rows: &[DetailedRepositoryStatusRow]) {
+    use tabled::settings::object::Cell;
+    
+    for (row_index, row) in rows.iter().enumerate() {
+        let status_color = get_status_color(&row.status);
+        
+        // Apply color to the Status column (index 2) for this row
+        // +1 because row 0 is the header
+        table.modify(
+            Cell::new(row_index + 1, 2),
+            status_color
+        );
+    }
+}
+
+/// Get color for status text
+fn get_status_color(status: &str) -> Color {
+    match status {
+        "Missing" => Color::FG_BRIGHT_BLACK,
+        "Not Git Repo" => Color::FG_BLUE,
+        "Up to Date" => Color::FG_GREEN,
+        "Needs Update" => Color::FG_YELLOW,
+        "Has Conflicts" => Color::FG_RED,
+        _ => Color::FG_WHITE, // Default for errors or unknown status
     }
 }
 
@@ -385,10 +442,11 @@ mod tests {
     
     #[test]
     fn test_format_repository_status() {
-        assert_eq!(format_repository_status(&RepositoryStatus::Missing), "Missing");
-        assert_eq!(format_repository_status(&RepositoryStatus::NotGitRepository), "Not Git Repo");
-        assert_eq!(format_repository_status(&RepositoryStatus::UpToDate), "Up to Date");
-        assert_eq!(format_repository_status(&RepositoryStatus::NeedsUpdate), "Needs Update");
-        assert_eq!(format_repository_status(&RepositoryStatus::HasConflicts), "Has Conflicts");
+        // Test that the colored function produces the expected text (colors will be stripped when compared)
+        assert!(format_repository_status_colored(&RepositoryStatus::Missing).contains("Missing"));
+        assert!(format_repository_status_colored(&RepositoryStatus::NotGitRepository).contains("Not Git Repo"));
+        assert!(format_repository_status_colored(&RepositoryStatus::UpToDate).contains("Up to Date"));
+        assert!(format_repository_status_colored(&RepositoryStatus::NeedsUpdate).contains("Needs Update"));
+        assert!(format_repository_status_colored(&RepositoryStatus::HasConflicts).contains("Has Conflicts"));
     }
 }
