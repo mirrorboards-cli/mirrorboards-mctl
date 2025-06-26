@@ -21,25 +21,38 @@ pub struct SshManager {
 impl SshManager {
     /// Create a new SSH manager with smart agent detection and key discovery
     pub fn new() -> SshResult<Self> {
-        println!("Initializing SSH manager...");
+        Self::new_with_verbose(false)
+    }
+    
+    /// Create a new SSH manager with optional verbose output
+    pub fn new_with_verbose(verbose: bool) -> SshResult<Self> {
+        if verbose {
+            println!("Initializing SSH manager...");
+        }
         
         // Try to connect to SSH agent and verify it has keys
-        let agent = match Self::try_connect_agent() {
+        let agent = match Self::try_connect_agent_with_verbose(verbose) {
             Ok(agent) => {
-                println!("SSH agent connected and has keys loaded");
+                if verbose {
+                    println!("SSH agent connected and has keys loaded");
+                }
                 Some(agent)
             }
             Err(e) => {
-                println!("SSH agent not usable: {}", e);
+                if verbose {
+                    println!("SSH agent not usable: {}", e);
+                }
                 None
             }
         };
         
         // Discover filesystem SSH keys
-        let available_keys = Self::find_ssh_keys();
-        println!("Found {} SSH keys on filesystem", available_keys.len());
-        for key in &available_keys {
-            println!("  - {}", key.display());
+        let available_keys = Self::find_ssh_keys_with_verbose(verbose);
+        if verbose {
+            println!("Found {} SSH keys on filesystem", available_keys.len());
+            for key in &available_keys {
+                println!("  - {}", key.display());
+            }
         }
         
         // Ensure we have at least one authentication method
@@ -59,29 +72,32 @@ impl SshManager {
         self.agent.is_some()
     }
     
-    /// Find SSH keys in the filesystem
-    /// Searches for standard SSH key files and verifies both private and public keys exist
-    pub fn find_ssh_keys() -> Vec<PathBuf> {
+    /// Find SSH keys in the filesystem with optional verbose output
+    pub fn find_ssh_keys_with_verbose(verbose: bool) -> Vec<PathBuf> {
         let mut keys = Vec::new();
         
         // Get SSH directory
         let ssh_dir = match Self::get_ssh_directory() {
             Ok(dir) => dir,
             Err(_) => {
-                println!("Could not determine SSH directory");
+                if verbose {
+                    println!("Could not determine SSH directory");
+                }
                 return keys;
             }
         };
         
         if !ssh_dir.exists() {
-            println!("SSH directory does not exist: {}", ssh_dir.display());
+            if verbose {
+                println!("SSH directory does not exist: {}", ssh_dir.display());
+            }
             return keys;
         }
         
         // Standard SSH key names to look for
         let key_names = [
             "id_rsa",
-            "id_ed25519", 
+            "id_ed25519",
             "id_ecdsa",
             "id_dsa",
         ];
@@ -95,7 +111,9 @@ impl SshManager {
                 // Verify private key is readable
                 if let Ok(metadata) = fs::metadata(&private_key_path) {
                     if metadata.is_file() {
-                        println!("Found SSH key pair: {}", key_name);
+                        if verbose {
+                            println!("Found SSH key pair: {}", key_name);
+                        }
                         keys.push(private_key_path);
                     }
                 }
@@ -175,9 +193,11 @@ impl SshManager {
         }
     }
     
-    /// Try to connect to SSH agent and verify it has keys
-    fn try_connect_agent() -> SshResult<Agent> {
-        println!("Attempting to connect to SSH agent...");
+    /// Try to connect to SSH agent and verify it has keys with optional verbose output
+    fn try_connect_agent_with_verbose(verbose: bool) -> SshResult<Agent> {
+        if verbose {
+            println!("Attempting to connect to SSH agent...");
+        }
         
         // Create a temporary session to test agent
         let session = Session::new().map_err(|e| SshError::SessionInitError {
@@ -185,31 +205,35 @@ impl SshManager {
         })?;
         
         // Try to connect to SSH agent
-        let mut agent = session.agent().map_err(|e| SshError::AgentConnectionError { 
-            message: format!("Failed to connect to agent: {}", e) 
+        let mut agent = session.agent().map_err(|e| SshError::AgentConnectionError {
+            message: format!("Failed to connect to agent: {}", e)
         })?;
         
         // Connect to the agent
-        agent.connect().map_err(|e| SshError::AgentConnectionError { 
-            message: format!("Agent connect failed: {}", e) 
+        agent.connect().map_err(|e| SshError::AgentConnectionError {
+            message: format!("Agent connect failed: {}", e)
         })?;
         
         // Request list of identities
-        agent.list_identities().map_err(|e| SshError::AgentConnectionError { 
-            message: format!("Failed to list identities: {}", e) 
+        agent.list_identities().map_err(|e| SshError::AgentConnectionError {
+            message: format!("Failed to list identities: {}", e)
         })?;
         
         // Check if agent has any keys
-        let identities = agent.identities().map_err(|e| SshError::AgentConnectionError { 
-            message: format!("Failed to get identities: {}", e) 
+        let identities = agent.identities().map_err(|e| SshError::AgentConnectionError {
+            message: format!("Failed to get identities: {}", e)
         })?;
         
         if identities.is_empty() {
-            println!("SSH agent is connected but has no keys loaded");
+            if verbose {
+                println!("SSH agent is connected but has no keys loaded");
+            }
             return Err(SshError::AgentEmptyError);
         }
         
-        println!("SSH agent has {} keys loaded", identities.len());
+        if verbose {
+            println!("SSH agent has {} keys loaded", identities.len());
+        }
         Ok(agent)
     }
     
@@ -255,7 +279,7 @@ mod tests {
     #[test]
     fn test_key_discovery() {
         // This test will find keys if they exist
-        let keys = SshManager::find_ssh_keys();
+        let keys = SshManager::find_ssh_keys_with_verbose(false);
         // We can't assert specific counts since it depends on the system
         // but we can verify it returns a Vec
         assert!(keys.len() >= 0);

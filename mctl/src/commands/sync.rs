@@ -33,7 +33,7 @@ impl Command for SyncCommand {
         print_verbose(&format!("Found {} repositories to process", config.len()), verbose);
 
         // Initialize Git manager
-        let git_manager = GitManager::new()
+        let git_manager = GitManager::new_with_verbose(verbose)
             .context("Failed to initialize Git manager")?;
 
         // Setup progress tracking

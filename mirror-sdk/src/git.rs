@@ -83,7 +83,12 @@ pub struct RepositoryDiff {
 impl GitManager {
     /// Create a new GitManager with SSH authentication support
     pub fn new() -> GitResult<Self> {
-        let ssh_manager = SshManager::new()
+        Self::new_with_verbose(false)
+    }
+    
+    /// Create a new GitManager with optional verbose output
+    pub fn new_with_verbose(verbose: bool) -> GitResult<Self> {
+        let ssh_manager = SshManager::new_with_verbose(verbose)
             .map_err(|e| GitError::SshError { source: e })?;
         
         Ok(GitManager { ssh_manager })
