@@ -75,6 +75,11 @@ fn run(args: Cli) -> Result<()> {
             let command = ValidateCommand { detailed };
             command.execute(&config_manager, verbose)
         },
+        
+        Commands::Sync { dry_run, pull, force } => {
+            let command = SyncCommand { dry_run, pull, force };
+            command.execute(&config_manager, verbose)
+        },
     }
 }
 
@@ -199,5 +204,43 @@ mod tests {
             verbose: false,
         };
         run(validate_args).unwrap();
+    }
+    
+    #[test]
+    fn test_sync_command_integration() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_path = temp_file.path().to_string_lossy().to_string();
+        
+        // Initialize and add repository
+        let init_args = Cli {
+            command: Commands::Init { force: false },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(init_args).unwrap();
+        
+        let add_args = Cli {
+            command: Commands::Add {
+                git_url: "git@github.com:org/repo.git".to_string(),
+                path: None,
+                branch: None,
+                skip_push: false,
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(add_args).unwrap();
+        
+        // Test sync with dry run
+        let sync_args = Cli {
+            command: Commands::Sync {
+                dry_run: true,
+                pull: false,
+                force: false
+            },
+            config: Some(config_path),
+            verbose: false,
+        };
+        run(sync_args).unwrap();
     }
 }

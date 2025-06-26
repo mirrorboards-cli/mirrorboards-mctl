@@ -79,6 +79,21 @@ pub enum Commands {
         #[arg(short, long)]
         detailed: bool,
     },
+    
+    /// Synchronize repositories by cloning missing ones and updating existing ones
+    Sync {
+        /// Perform dry run without making changes
+        #[arg(long)]
+        dry_run: bool,
+        
+        /// Update existing repositories (pull latest changes)
+        #[arg(long)]
+        pull: bool,
+        
+        /// Force re-clone even if repository exists
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 impl Cli {
@@ -119,6 +134,15 @@ mod tests {
             assert!(json);
         } else {
             panic!("Expected List command");
+        }
+        
+        let cli = Cli::try_parse_from(&["mctl", "sync", "--dry-run", "--pull", "--force"]).unwrap();
+        if let Commands::Sync { dry_run, pull, force } = cli.command {
+            assert!(dry_run);
+            assert!(pull);
+            assert!(force);
+        } else {
+            panic!("Expected Sync command");
         }
     }
     

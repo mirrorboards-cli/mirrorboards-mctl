@@ -43,15 +43,19 @@
 
 pub mod config;
 pub mod error;
+pub mod git;
 pub mod hash;
 pub mod models;
+pub mod ssh;
 pub mod url_parser;
 
 // Re-export main types for easier access
 pub use config::ConfigManager;
-pub use error::{ConfigError, ConfigResult, HashError, MirrorSdkError, RepositoryError, Result};
+pub use error::{ConfigError, ConfigResult, GitError, GitResult, HashError, MirrorSdkError, RepositoryError, Result, SshError, SshResult};
+pub use git::{GitManager, RepositoryStatus};
 pub use hash::{generate_hash, generate_extended_hash, verify_hash, validate_hash_format};
 pub use models::{MirrorConfig, Repository};
+pub use ssh::SshManager;
 pub use url_parser::{extract_path_from_url, validate_git_url, extract_hostname};
 
 /// Crate version
