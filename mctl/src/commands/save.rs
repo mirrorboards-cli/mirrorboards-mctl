@@ -57,7 +57,7 @@ impl Command for SaveCommand {
             }
         };
         
-        print_info(&format!("Commit message: \"{}\"", commit_message));
+        print_verbose(&format!("Commit message: \"{}\"", commit_message), verbose);
         
         // Initialize Git manager
         let git_manager = GitManager::new_with_verbose(verbose)
@@ -107,7 +107,9 @@ impl Command for SaveCommand {
             match self.save_repository(&git_manager, &target_path, &commit_message, verbose) {
                 Ok(()) => {
                     success_count += 1;
-                    print_success(&format!("Successfully saved repository: {}", repo.path));
+                    if verbose {
+                        print_success(&format!("Successfully saved repository: {}", repo.path));
+                    }
                 }
                 Err(e) => {
                     error_count.fetch_add(1, Ordering::SeqCst);
@@ -170,7 +172,7 @@ impl SaveCommand {
         print_verbose(&format!("Starting save operation for: {}", repo_path.display()), verbose);
         
         // Step 1: git add --all
-        print_verbose("Running git add --all", verbose);
+        print_verbose("Staging all changes...", verbose);
         git_manager.add_all(repo_path)
             .context("Failed to stage all changes")?;
         
@@ -180,7 +182,6 @@ impl SaveCommand {
             .context("Failed to create commit")?;
         
         // Step 3: git push to current branch
-        print_verbose("Pushing to current branch", verbose);
         let current_branch = git_manager.get_current_branch(repo_path)
             .context("Failed to get current branch name")?;
         
