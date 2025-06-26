@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::BTreeMap;
+use colored::Colorize;
 
 pub struct StatusCommand {
     pub detailed: bool,
@@ -231,39 +232,39 @@ impl Command for StatusCommand {
                     }
                 }
                 
-                // Display grouped files
+                // Display grouped files with colors
                 if !staged_files.is_empty() {
-                    println!("  Staged:");
+                    println!("  {}:", "Staged".cyan().bold());
                     for file in staged_files {
-                        println!("    - {}", file);
+                        println!("    - {}", file.cyan());
                     }
                 }
                 
                 if !modified_files.is_empty() {
-                    println!("  Modified:");
+                    println!("  {}:", "Modified".yellow().bold());
                     for file in modified_files {
-                        println!("    - {}", file);
+                        println!("    - {}", file.yellow());
                     }
                 }
                 
                 if !new_files.is_empty() {
-                    println!("  Untracked:");
+                    println!("  {}:", "Untracked".green().bold());
                     for file in new_files {
-                        println!("    - {}", file);
+                        println!("    - {}", file.green());
                     }
                 }
                 
                 if !deleted_files.is_empty() {
-                    println!("  Deleted:");
+                    println!("  {}:", "Deleted".red().bold());
                     for file in deleted_files {
-                        println!("    - {}", file);
+                        println!("    - {}", file.red());
                     }
                 }
                 
                 if !renamed_files.is_empty() {
-                    println!("  Renamed:");
+                    println!("  {}:", "Renamed".magenta().bold());
                     for file in renamed_files {
-                        println!("    - {}", file);
+                        println!("    - {}", file.magenta());
                     }
                 }
             }
