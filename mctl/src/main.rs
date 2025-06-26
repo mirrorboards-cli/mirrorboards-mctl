@@ -85,6 +85,11 @@ fn run(args: Cli) -> Result<()> {
             let command = StatusCommand { detailed };
             command.execute(&config_manager, verbose)
         },
+        
+        Commands::Diff { staged, all, detailed } => {
+            let command = DiffCommand { staged, all, detailed };
+            command.execute(&config_manager, verbose)
+        },
     }
 }
 
@@ -289,5 +294,67 @@ mod tests {
             verbose: false,
         };
         run(detailed_status_args).unwrap();
+    }
+    
+    #[test]
+    fn test_diff_command_integration() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_path = temp_file.path().to_string_lossy().to_string();
+        
+        // Initialize and add repository
+        let init_args = Cli {
+            command: Commands::Init { force: false },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(init_args).unwrap();
+        
+        let add_args = Cli {
+            command: Commands::Add {
+                git_url: "git@github.com:org/repo.git".to_string(),
+                path: None,
+                branch: None,
+                skip_push: false,
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(add_args).unwrap();
+        
+        // Test diff command (working directory)
+        let diff_args = Cli {
+            command: Commands::Diff {
+                staged: false,
+                all: false,
+                detailed: false
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(diff_args).unwrap();
+        
+        // Test diff command (staged)
+        let diff_staged_args = Cli {
+            command: Commands::Diff {
+                staged: true,
+                all: false,
+                detailed: false
+            },
+            config: Some(config_path.clone()),
+            verbose: false,
+        };
+        run(diff_staged_args).unwrap();
+        
+        // Test diff command (all changes)
+        let diff_all_args = Cli {
+            command: Commands::Diff {
+                staged: false,
+                all: true,
+                detailed: true
+            },
+            config: Some(config_path),
+            verbose: false,
+        };
+        run(diff_all_args).unwrap();
     }
 }

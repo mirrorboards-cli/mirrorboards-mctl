@@ -3,7 +3,7 @@
 //! Provides Git repository cloning and update operations with robust SSH authentication
 //! integration and retry limits to prevent infinite loops.
 
-use git2::{Repository, RemoteCallbacks, FetchOptions, Cred};
+use git2::{Repository, RemoteCallbacks, FetchOptions, Cred, Diff, DiffOptions};
 use crate::ssh::SshManager;
 use crate::models::Repository as RepoConfig;
 use crate::error::{GitError, GitResult};
@@ -69,6 +69,15 @@ pub struct DetailedRepositoryStatus {
     pub status: RepositoryStatus,
     /// List of files with changes (only populated if repository has git status)
     pub files: Vec<FileStatus>,
+}
+
+/// Repository diff information
+#[derive(Debug, Clone)]
+pub struct RepositoryDiff {
+    /// Working directory diff (unstaged changes)
+    pub working_diff: Option<String>,
+    /// Staged diff (index changes)
+    pub staged_diff: Option<String>,
 }
 
 impl GitManager {
@@ -438,6 +447,126 @@ impl GitManager {
             status,
             files,
         })
+    }
+    
+    /// Get working directory diff (unstaged changes)
+    pub fn get_working_directory_diff(&self, repo_path: &Path) -> GitResult<Option<String>> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Ok(None);
+        }
+        
+        let repo = match Repository::open(repo_path) {
+            Ok(repo) => repo,
+            Err(_) => return Ok(None),
+        };
+        
+        // Get diff between HEAD and working directory
+        let mut diff_options = DiffOptions::new();
+        diff_options.context_lines(3);
+        diff_options.interhunk_lines(0);
+        
+        let diff = repo.diff_tree_to_workdir_with_index(None, Some(&mut diff_options))
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get working directory diff: {}", e)
+            })?;
+        
+        self.format_diff(diff)
+    }
+    
+    /// Get staged diff (index changes)
+    pub fn get_staged_diff(&self, repo_path: &Path) -> GitResult<Option<String>> {
+        // Check if path exists and is a git repository
+        if !repo_path.exists() {
+            return Ok(None);
+        }
+        
+        let repo = match Repository::open(repo_path) {
+            Ok(repo) => repo,
+            Err(_) => return Ok(None),
+        };
+        
+        // Get the current HEAD tree
+        let head_tree = match repo.head() {
+            Ok(head) => {
+                let head_commit = head.peel_to_commit()
+                    .map_err(|e| GitError::OperationFailed {
+                        message: format!("Failed to get HEAD commit: {}", e)
+                    })?;
+                Some(head_commit.tree()
+                    .map_err(|e| GitError::OperationFailed {
+                        message: format!("Failed to get HEAD tree: {}", e)
+                    })?)
+            }
+            Err(_) => None, // No HEAD (empty repository)
+        };
+        
+        // Get diff between HEAD and index
+        let mut diff_options = DiffOptions::new();
+        diff_options.context_lines(3);
+        diff_options.interhunk_lines(0);
+        
+        let diff = repo.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut diff_options))
+            .map_err(|e| GitError::OperationFailed {
+                message: format!("Failed to get staged diff: {}", e)
+            })?;
+        
+        self.format_diff(diff)
+    }
+    
+    /// Get combined repository diff (both working directory and staged)
+    pub fn get_repository_diff(&self, repo_path: &Path) -> GitResult<RepositoryDiff> {
+        let working_diff = self.get_working_directory_diff(repo_path)?;
+        let staged_diff = self.get_staged_diff(repo_path)?;
+        
+        Ok(RepositoryDiff {
+            working_diff,
+            staged_diff,
+        })
+    }
+    
+    /// Format a git2::Diff into a string representation
+    fn format_diff(&self, diff: Diff) -> GitResult<Option<String>> {
+        let mut diff_output = Vec::<u8>::new();
+        
+        // Check if there are any changes
+        if diff.deltas().len() == 0 {
+            return Ok(None);
+        }
+        
+        diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+            match line.origin() {
+                '+' | '-' | ' ' => {
+                    diff_output.push(line.origin() as u8);
+                    diff_output.extend_from_slice(line.content());
+                }
+                'F' => {
+                    // File header
+                    diff_output.extend_from_slice(b"diff --git ");
+                    diff_output.extend_from_slice(line.content());
+                }
+                'H' => {
+                    // Hunk header
+                    diff_output.extend_from_slice(line.content());
+                }
+                _ => {
+                    diff_output.extend_from_slice(line.content());
+                }
+            }
+            true
+        }).map_err(|e| GitError::OperationFailed {
+            message: format!("Failed to format diff: {}", e)
+        })?;
+        
+        if diff_output.is_empty() {
+            Ok(None)
+        } else {
+            String::from_utf8(diff_output)
+                .map(|s| Some(s))
+                .map_err(|e| GitError::OperationFailed {
+                    message: format!("Failed to convert diff to string: {}", e)
+                })
+        }
     }
     
     /// Clone repository with specific branch

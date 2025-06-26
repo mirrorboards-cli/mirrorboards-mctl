@@ -1,6 +1,7 @@
 //! Command implementations for mctl CLI
 
 pub mod add;
+pub mod diff;
 pub mod init;
 pub mod list;
 pub mod remove;
@@ -10,6 +11,7 @@ pub mod sync;
 pub mod validate;
 
 pub use add::AddCommand;
+pub use diff::DiffCommand;
 pub use init::InitCommand;
 pub use list::ListCommand;
 pub use remove::RemoveCommand;

@@ -101,6 +101,21 @@ pub enum Commands {
         #[arg(short, long)]
         detailed: bool,
     },
+    
+    /// Show git diff output for all repositories
+    Diff {
+        /// Show staged changes (equivalent to git diff --staged)
+        #[arg(long)]
+        staged: bool,
+        
+        /// Show both working directory and staged changes
+        #[arg(short, long)]
+        all: bool,
+        
+        /// Show detailed repository information
+        #[arg(short, long)]
+        detailed: bool,
+    },
 }
 
 impl Cli {
@@ -157,6 +172,15 @@ mod tests {
             assert!(detailed);
         } else {
             panic!("Expected Status command");
+        }
+        
+        let cli = Cli::try_parse_from(&["mctl", "diff", "--staged", "--all", "--detailed"]).unwrap();
+        if let Commands::Diff { staged, all, detailed } = cli.command {
+            assert!(staged);
+            assert!(all);
+            assert!(detailed);
+        } else {
+            panic!("Expected Diff command");
         }
     }
     

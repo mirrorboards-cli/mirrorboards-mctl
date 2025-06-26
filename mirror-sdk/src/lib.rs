@@ -52,7 +52,7 @@ pub mod url_parser;
 // Re-export main types for easier access
 pub use config::ConfigManager;
 pub use error::{ConfigError, ConfigResult, GitError, GitResult, HashError, MirrorSdkError, RepositoryError, Result, SshError, SshResult};
-pub use git::{GitManager, RepositoryStatus, FileStatus, FileChangeType, DetailedRepositoryStatus};
+pub use git::{GitManager, RepositoryStatus, FileStatus, FileChangeType, DetailedRepositoryStatus, RepositoryDiff};
 pub use hash::{generate_hash, generate_extended_hash, verify_hash, validate_hash_format};
 pub use models::{MirrorConfig, Repository};
 pub use ssh::SshManager;
