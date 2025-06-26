@@ -1,5 +1,5 @@
 use anyhow::{Result, Context, bail};
-use mirror_sdk::{ConfigManager, validate_git_url};
+use mirror_sdk::{ConfigManager, validate_git_url, error::MirrorSdkError};
 use super::{Command, print_success, print_warning, print_error, print_verbose, print_info};
 
 pub struct ValidateCommand {
@@ -14,10 +14,10 @@ impl Command for ValidateCommand {
             bail!("Configuration file does not exist. Run 'mctl init' to create one.");
         }
         
-        let repositories = config_manager.list_repositories()
-            .context("Failed to load repositories from configuration")?;
+        let config = config_manager.load()
+            .context("Failed to load configuration")?;
         
-        if repositories.is_empty() {
+        if config.is_empty() {
             print_warning("Configuration file is empty (no repositories defined)");
             if verbose {
                 println!("This is valid but may not be what you intended.");
@@ -26,7 +26,25 @@ impl Command for ValidateCommand {
             return Ok(());
         }
         
+        let repositories = config.repositories();
+        
         print_verbose(&format!("Validating {} repositories", repositories.len()), verbose);
+        
+        // Check for path conflicts first using SDK functionality
+        print_verbose("Checking for path conflicts", verbose);
+        if let Err(e) = config.check_path_conflicts() {
+            match e {
+                MirrorSdkError::Config(ref config_error) => {
+                    if let mirror_sdk::error::ConfigError::PathConflict { path, existing_git, new_git } = config_error {
+                        bail!("Path conflict detected: '{}' is used by both '{}' and '{}'", path, existing_git, new_git);
+                    } else {
+                        bail!("Configuration error during path conflict check: {}", config_error);
+                    }
+                }
+                _ => bail!("Error during path conflict check: {}", e),
+            }
+        }
+        print_verbose("✓ No path conflicts detected", verbose);
         
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
@@ -80,23 +98,6 @@ impl Command for ValidateCommand {
             }
         }
         
-        // Check for duplicate repositories
-        let mut seen_urls = std::collections::HashSet::new();
-        let mut seen_paths = std::collections::HashSet::new();
-        
-        for (index, repo) in repositories.iter().enumerate() {
-            let repo_number = index + 1;
-            let hash = repo.compute_hash();
-            
-            if !seen_urls.insert(&repo.git) {
-                warnings.push(format!("Repository {} ({}): Duplicate git URL: {}", repo_number, &hash[..8], repo.git));
-            }
-            
-            if !seen_paths.insert(&repo.path) {
-                warnings.push(format!("Repository {} ({}): Duplicate path: {}", repo_number, &hash[..8], repo.path));
-            }
-        }
-        
         // Report results
         println!("\nValidation Results:");
         println!("  Total repositories: {}", repositories.len());
@@ -122,9 +123,9 @@ impl Command for ValidateCommand {
         
         // Summary
         if errors.is_empty() && warnings.is_empty() {
-            print_success("Configuration is valid with no issues detected");
+            print_success("Configuration is valid with no issues detected (including path conflicts)");
         } else if errors.is_empty() {
-            print_success("Configuration is valid but has some warnings");
+            print_success("Configuration is valid but has some warnings (no path conflicts found)");
         } else {
             print_error("Configuration has validation errors that should be fixed");
             bail!("Validation failed with {} errors", errors.len());
@@ -141,6 +142,7 @@ impl Command for ValidateCommand {
                 println!("  • Review the warnings to ensure they are acceptable");
                 println!("  • Consider fixing path and URL format issues");
             }
+            println!("  • Path conflicts are automatically detected and prevented");
             println!("  • Run 'mctl validate --detailed' for repository-by-repository validation");
         }
         

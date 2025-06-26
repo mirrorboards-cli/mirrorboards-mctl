@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use mirror_sdk::{ConfigManager, Repository, validate_git_url};
+use mirror_sdk::{ConfigManager, Repository, validate_git_url, MirrorSdkError, ConfigError};
 use super::{Command, print_success, print_verbose, print_info};
 
 pub struct AddCommand {
@@ -51,7 +51,15 @@ impl Command for AddCommand {
         
         // Add to configuration
         config_manager.add_repository(repo.clone())
-            .context("Failed to add repository to configuration")?;
+            .map_err(|e| match e {
+                MirrorSdkError::Config(ConfigError::PathConflict { path, existing_git, new_git }) => {
+                    anyhow::anyhow!(
+                        "Path conflict detected: '{}' is already used by repository '{}', cannot be used by '{}'",
+                        path, existing_git, new_git
+                    )
+                },
+                _ => anyhow::anyhow!("Failed to add repository to configuration: {}", e)
+            })?;
         
         print_success(&format!("Added repository: {}", self.git_url));
         

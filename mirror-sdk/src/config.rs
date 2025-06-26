@@ -1,4 +1,4 @@
-use crate::error::{ConfigError, ConfigResult};
+use crate::error::{ConfigError, ConfigResult, MirrorSdkError};
 use crate::models::{MirrorConfig, Repository};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,18 +48,16 @@ impl ConfigManager {
     }
     
     /// Add a repository to the configuration
-    pub fn add_repository(&self, repo: Repository) -> ConfigResult<()> {
+    pub fn add_repository(&self, repo: Repository) -> Result<(), MirrorSdkError> {
         let mut config = if self.exists() {
             self.load()?
         } else {
             MirrorConfig::new()
         };
         
-        config.add_repository(repo).map_err(|e| ConfigError::ValidationError {
-            message: e.to_string(),
-        })?;
+        config.add_repository(repo)?;
         
-        self.save(&config)
+        self.save(&config).map_err(|e| e.into())
     }
     
     /// Remove a repository by hash

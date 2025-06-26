@@ -28,8 +28,12 @@ pub enum ConfigError {
     #[error("Repository with hash '{hash}' not found")]
     RepositoryNotFound { hash: String },
     
-    #[error("Repository already exists: {git}")]
-    DuplicateRepository { git: String },
+    #[error("Path conflict detected: '{path}' is already used by repository '{existing_git}', cannot be used by '{new_git}'")]
+    PathConflict {
+        path: String,
+        existing_git: String,
+        new_git: String
+    },
     
     #[error("Configuration validation failed: {message}")]
     ValidationError { message: String },
