@@ -1,3 +1,7 @@
+```bash
+cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
+```
+
 # mctl - Mirror Configuration Management Tool
 
 A Rust-based CLI tool and SDK for managing `mirror.toml` configuration files that define collections of git repositories for large-scale IT projects.

@@ -33,7 +33,7 @@ pub fn extract_path_from_url(git_url: &str) -> RepositoryResult<String> {
 fn extract_ssh_path(git_url: &str) -> RepositoryResult<String> {
     static SSH_REGEX: OnceLock<Regex> = OnceLock::new();
     let regex = SSH_REGEX.get_or_init(|| {
-        Regex::new(r"^git@[^:]+:(.+?)(?:\.git)?/?$").unwrap()
+        Regex::new(r"^[^@]+@[^:]+:(.+?)(?:\.git)?/?$").unwrap()
     });
     
     if let Some(captures) = regex.captures(git_url) {
@@ -122,7 +122,7 @@ pub fn validate_git_url(git_url: &str) -> RepositoryResult<()> {
 fn is_ssh_url(url: &str) -> bool {
     static SSH_PATTERN: OnceLock<Regex> = OnceLock::new();
     let regex = SSH_PATTERN.get_or_init(|| {
-        Regex::new(r"^git@[^:]+:.+").unwrap()
+        Regex::new(r"^[^@]+@[^:]+:.+").unwrap()
     });
     regex.is_match(url)
 }
@@ -139,7 +139,7 @@ pub fn extract_hostname(git_url: &str) -> RepositoryResult<String> {
     if is_ssh_url(trimmed_url) {
         static SSH_HOST_REGEX: OnceLock<Regex> = OnceLock::new();
         let regex = SSH_HOST_REGEX.get_or_init(|| {
-            Regex::new(r"^git@([^:]+):").unwrap()
+            Regex::new(r"^[^@]+@([^:]+):").unwrap()
         });
         
         if let Some(captures) = regex.captures(trimmed_url) {
@@ -304,5 +304,53 @@ mod tests {
         assert!(is_https_url("https://github.com/org/repo.git"));
         assert!(is_https_url("http://git.example.com/org/repo.git"));
         assert!(!is_https_url("git@github.com:org/repo.git"));
+    }
+    
+    #[test]
+    fn test_organization_specific_ssh_urls() {
+        // Test organization-specific SSH URLs with various username formats
+        assert_eq!(
+            extract_path_from_url("org-25111032@github.com:smartcontractkit/chainlink.git").unwrap(),
+            "smartcontractkit/chainlink"
+        );
+        
+        assert_eq!(
+            extract_path_from_url("deploy-key-123@gitlab.com:myorg/myrepo.git").unwrap(),
+            "myorg/myrepo"
+        );
+        
+        assert_eq!(
+            extract_path_from_url("user.name@bitbucket.org:company/project.git").unwrap(),
+            "company/project"
+        );
+        
+        // Test hostname extraction for organization-specific URLs
+        assert_eq!(
+            extract_hostname("org-25111032@github.com:smartcontractkit/chainlink.git").unwrap(),
+            "github.com"
+        );
+        
+        assert_eq!(
+            extract_hostname("deploy-key-123@gitlab.com:myorg/myrepo.git").unwrap(),
+            "gitlab.com"
+        );
+        
+        // Test URL format detection for organization-specific URLs
+        assert!(is_ssh_url("org-25111032@github.com:smartcontractkit/chainlink.git"));
+        assert!(is_ssh_url("deploy-key-123@gitlab.com:myorg/myrepo.git"));
+        assert!(is_ssh_url("user.name@bitbucket.org:company/project.git"));
+        
+        // Test validation for organization-specific URLs
+        assert!(validate_git_url("org-25111032@github.com:smartcontractkit/chainlink.git").is_ok());
+        assert!(validate_git_url("deploy-key-123@gitlab.com:myorg/myrepo.git").is_ok());
+        assert!(validate_git_url("user.name@bitbucket.org:company/project.git").is_ok());
+        
+        // Ensure backward compatibility with standard git@ URLs
+        assert_eq!(
+            extract_path_from_url("git@github.com:org/repo.git").unwrap(),
+            "org/repo"
+        );
+        assert!(is_ssh_url("git@github.com:org/repo.git"));
+        assert!(validate_git_url("git@github.com:org/repo.git").is_ok());
     }
 }

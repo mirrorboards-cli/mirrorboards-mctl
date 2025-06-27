@@ -176,7 +176,7 @@ impl PathValidator {
         
         for component in path.components() {
             match component {
-                Component::Normal(part) => {
+                Component::Normal(_part) => {
                     components.push(component);
                 }
                 Component::CurDir => {
