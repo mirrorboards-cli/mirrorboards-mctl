@@ -90,18 +90,30 @@ impl Command for SaveCommand {
             print_verbose(&format!("Processing repository {}/{}: {} -> {}",
                 index + 1, active_repositories.len(), repo.git, target_path.display()), verbose);
             
-            // Check if repository exists and is a git repository
+            // Safely validate and check if repository exists and is a git repository
+            let path_validator = mirror_sdk::PathValidator::new();
+            
             if !target_path.exists() {
                 print_warning(&format!("Repository {} does not exist locally, skipping", repo.path));
                 skipped_count += 1;
                 continue;
             }
             
-            // Check if the target path is a git repository
-            if !target_path.join(".git").exists() {
-                print_warning(&format!("Repository {} is not a git repository, skipping", repo.path));
-                skipped_count += 1;
-                continue;
+            // Securely check if the target path is a git repository
+            match path_validator.has_git_directory(&target_path) {
+                Ok(true) => {
+                    // Path is safe and contains a .git directory
+                }
+                Ok(false) => {
+                    print_warning(&format!("Repository {} is not a git repository, skipping", repo.path));
+                    skipped_count += 1;
+                    continue;
+                }
+                Err(e) => {
+                    print_warning(&format!("Cannot safely access repository {}: {}, skipping", repo.path, e));
+                    skipped_count += 1;
+                    continue;
+                }
             }
             
             match self.save_repository(&git_manager, &target_path, &commit_message, verbose) {
@@ -112,13 +124,29 @@ impl Command for SaveCommand {
                     }
                 }
                 Err(e) => {
-                    // Check if this is a "no changes" error
-                    if e.to_string().contains("No changes to commit") {
-                        skipped_count += 1;
-                        if verbose {
-                            print_info(&format!("Repository {} has no changes, skipped", repo.path));
+                    // Check if this is a "no changes" error using proper error matching
+                    if let Some(git_error) = e.downcast_ref::<mirror_sdk::GitError>() {
+                        match git_error {
+                            mirror_sdk::GitError::NoChangesToCommit => {
+                                skipped_count += 1;
+                                if verbose {
+                                    print_info(&format!("Repository {} has no changes, skipped", repo.path));
+                                }
+                            }
+                            _ => {
+                                error_count.fetch_add(1, Ordering::SeqCst);
+                                print_error(&format!("Failed to save repository {}: {}", repo.path, e));
+                                if verbose {
+                                    let mut source = e.source();
+                                    while let Some(err) = source {
+                                        eprintln!("  Caused by: {}", err);
+                                        source = err.source();
+                                    }
+                                }
+                            }
                         }
                     } else {
+                        // For non-GitError types, treat as general error
                         error_count.fetch_add(1, Ordering::SeqCst);
                         print_error(&format!("Failed to save repository {}: {}", repo.path, e));
                         if verbose {
@@ -192,7 +220,7 @@ impl SaveCommand {
         
         if !has_changes {
             print_verbose("No changes to commit, skipping", verbose);
-            return Err(anyhow::anyhow!("No changes to commit"));
+            return Err(mirror_sdk::GitError::NoChangesToCommit.into());
         }
         
         print_verbose(&format!("Found {} files with changes", detailed_status.files.len()), verbose);

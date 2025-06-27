@@ -46,15 +46,17 @@ pub mod error;
 pub mod git;
 pub mod hash;
 pub mod models;
+pub mod security;
 pub mod ssh;
 pub mod url_parser;
 
 // Re-export main types for easier access
 pub use config::ConfigManager;
-pub use error::{ConfigError, ConfigResult, GitError, GitResult, HashError, MirrorSdkError, RepositoryError, Result, SshError, SshResult};
+pub use error::{ConfigError, ConfigResult, GitError, GitResult, HashError, MirrorSdkError, RepositoryError, RepositoryResult, Result, SshError, SshResult};
 pub use git::{GitManager, RepositoryStatus, FileStatus, FileChangeType, DetailedRepositoryStatus, RepositoryDiff};
 pub use hash::{generate_hash, generate_extended_hash, verify_hash, validate_hash_format};
 pub use models::{MirrorConfig, Repository};
+pub use security::{PathValidator, SecurityPolicy};
 pub use ssh::SshManager;
 pub use url_parser::{extract_path_from_url, validate_git_url, extract_hostname};
 

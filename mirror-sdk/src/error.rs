@@ -28,6 +28,12 @@ pub enum ConfigError {
     #[error("Repository with hash '{hash}' not found")]
     RepositoryNotFound { hash: String },
     
+    #[error("Repository with hash '{hash}' already exists (git: {existing_git})")]
+    DuplicateRepository {
+        hash: String,
+        existing_git: String
+    },
+    
     #[error("Path conflict detected: '{path}' is already used by repository '{existing_git}', cannot be used by '{new_git}'")]
     PathConflict {
         path: String,
@@ -56,6 +62,18 @@ pub enum RepositoryError {
     
     #[error("Invalid path: {path}")]
     InvalidPath { path: String },
+    
+    #[error("Path traversal attempt detected: {path}")]
+    PathTraversalAttempt { path: String },
+    
+    #[error("Path exceeds maximum length ({max}): {path}")]
+    PathTooLong { path: String, max: usize },
+    
+    #[error("Path contains dangerous patterns: {path}")]
+    DangerousPath { path: String },
+    
+    #[error("Path is outside allowed base directories: {path}")]
+    PathOutsideBase { path: String },
 }
 
 /// Errors that can occur during hash generation
@@ -111,6 +129,21 @@ pub enum GitError {
     #[error("Git repository not found: {path}")]
     RepositoryNotFound { path: PathBuf },
     
+    #[error("No changes to commit in repository")]
+    NoChangesToCommit,
+    
+    #[error("Repository has uncommitted changes that conflict with operation")]
+    UncommittedChanges,
+    
+    #[error("Branch '{branch}' does not exist on remote")]
+    BranchNotFound { branch: String },
+    
+    #[error("Repository is not a valid git repository: {path}")]
+    NotGitRepository { path: PathBuf },
+    
+    #[error("Working directory is not clean: {details}")]
+    WorkingDirectoryNotClean { details: String },
+    
     #[error("Git operation failed: {message}")]
     OperationFailed { message: String },
     
@@ -126,6 +159,12 @@ pub enum GitError {
     
     #[error("Pull operation failed: {path}: {message}")]
     PullFailed {
+        path: PathBuf,
+        message: String
+    },
+    
+    #[error("Push operation failed: {path}: {message}")]
+    PushFailed {
         path: PathBuf,
         message: String
     },

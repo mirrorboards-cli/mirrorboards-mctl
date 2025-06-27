@@ -111,9 +111,10 @@ impl MirrorConfig {
         let new_hash = repo.compute_hash();
         
         // Check for duplicates by hash
-        if self.repositories.iter().any(|r| r.compute_hash() == new_hash) {
-            return Err(RepositoryError::InvalidUrl {
-                url: format!("Repository with hash '{}' already exists", new_hash)
+        if let Some(existing_repo) = self.repositories.iter().find(|r| r.compute_hash() == new_hash) {
+            return Err(ConfigError::DuplicateRepository {
+                hash: new_hash,
+                existing_git: existing_repo.git.clone()
             }.into());
         }
         
