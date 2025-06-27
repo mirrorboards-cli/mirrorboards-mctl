@@ -112,13 +112,21 @@ impl Command for SaveCommand {
                     }
                 }
                 Err(e) => {
-                    error_count.fetch_add(1, Ordering::SeqCst);
-                    print_error(&format!("Failed to save repository {}: {}", repo.path, e));
-                    if verbose {
-                        let mut source = e.source();
-                        while let Some(err) = source {
-                            eprintln!("  Caused by: {}", err);
-                            source = err.source();
+                    // Check if this is a "no changes" error
+                    if e.to_string().contains("No changes to commit") {
+                        skipped_count += 1;
+                        if verbose {
+                            print_info(&format!("Repository {} has no changes, skipped", repo.path));
+                        }
+                    } else {
+                        error_count.fetch_add(1, Ordering::SeqCst);
+                        print_error(&format!("Failed to save repository {}: {}", repo.path, e));
+                        if verbose {
+                            let mut source = e.source();
+                            while let Some(err) = source {
+                                eprintln!("  Caused by: {}", err);
+                                source = err.source();
+                            }
                         }
                     }
                 }
@@ -144,7 +152,7 @@ impl Command for SaveCommand {
         println!("  • Repositories processed: {}", active_repositories.len());
         println!("  • Successful saves: {}", success_count);
         if skipped_count > 0 {
-            println!("  • Repositories skipped: {}", skipped_count);
+            println!("  • Repositories with no changes: {}", skipped_count);
         }
         if errors > 0 {
             println!("  • Repositories with errors: {}", errors);
@@ -171,17 +179,35 @@ impl SaveCommand {
     fn save_repository(&self, git_manager: &GitManager, repo_path: &PathBuf, commit_message: &str, verbose: bool) -> Result<()> {
         print_verbose(&format!("Starting save operation for: {}", repo_path.display()), verbose);
         
-        // Step 1: git add --all
+        // Step 1: Check if there are any changes to commit
+        print_verbose("Checking for changes...", verbose);
+        let detailed_status = git_manager.get_detailed_repository_status(repo_path)
+            .context("Failed to get repository status")?;
+        
+        // Check if there are any files with changes (working directory or staged)
+        let has_changes = detailed_status.files.iter().any(|file| {
+            file.working_dir_status != mirror_sdk::git::FileChangeType::Unmodified ||
+            file.index_status != mirror_sdk::git::FileChangeType::Unmodified
+        });
+        
+        if !has_changes {
+            print_verbose("No changes to commit, skipping", verbose);
+            return Err(anyhow::anyhow!("No changes to commit"));
+        }
+        
+        print_verbose(&format!("Found {} files with changes", detailed_status.files.len()), verbose);
+        
+        // Step 2: git add --all
         print_verbose("Staging all changes...", verbose);
         git_manager.add_all(repo_path)
             .context("Failed to stage all changes")?;
         
-        // Step 2: git commit
+        // Step 3: git commit
         print_verbose(&format!("Creating commit with message: \"{}\"", commit_message), verbose);
         git_manager.commit(repo_path, commit_message)
             .context("Failed to create commit")?;
         
-        // Step 3: git push to current branch
+        // Step 4: git push to current branch
         let current_branch = git_manager.get_current_branch(repo_path)
             .context("Failed to get current branch name")?;
         
