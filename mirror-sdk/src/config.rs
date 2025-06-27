@@ -1,467 +1,370 @@
-//! Configuration module for mirror-sdk
-//!
-//! This module provides the data structures and functions for working with
-//! the mirror.toml file format.
-
-use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::{Read, Write};
+use crate::error::{ConfigError, ConfigResult, MirrorSdkError};
+use crate::models::{MirrorConfig, Repository};
+use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::Error;
-use crate::repository::Repository;
+/// Configuration file manager for mirror.toml files
+pub struct ConfigManager {
+    file_path: PathBuf,
+}
 
-/// Default filename for mirror configuration
-pub const DEFAULT_FILENAME: &str = "mirror.toml";
-
-/// Environment variable name for custom mirror.toml path
-pub const ENV_MIRROR_PATH: &str = "MIRROR_CONFIG_PATH";
-
-/// Represents the mirror.toml configuration file
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MirrorConfig {
-    /// List of repositories
-    pub repositories: Vec<Repository>,
+impl ConfigManager {
+    /// Create a new config manager for the specified file path
+    pub fn new<P: AsRef<Path>>(file_path: P) -> Self {
+        ConfigManager {
+            file_path: file_path.as_ref().to_path_buf(),
+        }
+    }
     
-    /// Path to the configuration file (not serialized)
-    #[serde(skip)]
-    path: Option<PathBuf>,
+    /// Create a config manager for mirror.toml in the current directory
+    pub fn default() -> Self {
+        ConfigManager::new("mirror.toml")
+    }
+    
+    /// Load configuration from the file
+    pub fn load(&self) -> ConfigResult<MirrorConfig> {
+        MirrorConfig::load_from_file(&self.file_path)
+    }
+    
+    /// Save configuration to the file
+    pub fn save(&self, config: &MirrorConfig) -> ConfigResult<()> {
+        config.save_to_file(&self.file_path)
+    }
+    
+    /// Check if the configuration file exists
+    pub fn exists(&self) -> bool {
+        self.file_path.exists()
+    }
+    
+    /// Get the file path
+    pub fn path(&self) -> &Path {
+        &self.file_path
+    }
+    
+    /// Create an empty configuration file
+    pub fn create_empty(&self) -> ConfigResult<()> {
+        let empty_config = MirrorConfig::new();
+        self.save(&empty_config)
+    }
+    
+    /// Add a repository to the configuration
+    pub fn add_repository(&self, repo: Repository) -> Result<(), MirrorSdkError> {
+        let mut config = if self.exists() {
+            self.load()?
+        } else {
+            MirrorConfig::new()
+        };
+        
+        config.add_repository(repo)?;
+        
+        self.save(&config).map_err(|e| e.into())
+    }
+    
+    /// Remove a repository by hash
+    pub fn remove_repository(&self, hash: &str) -> ConfigResult<Repository> {
+        let mut config = self.load()?;
+        
+        let removed = config.remove_repository(hash)
+            .ok_or_else(|| ConfigError::RepositoryNotFound {
+                hash: hash.to_string(),
+            })?;
+        
+        self.save(&config)?;
+        Ok(removed)
+    }
+    
+    /// Find a repository by hash
+    pub fn find_repository(&self, hash: &str) -> ConfigResult<Option<Repository>> {
+        let config = self.load()?;
+        Ok(config.find_by_hash(hash).cloned())
+    }
+    
+    /// List all repositories
+    pub fn list_repositories(&self) -> ConfigResult<Vec<Repository>> {
+        let config = self.load()?;
+        Ok(config.repositories().to_vec())
+    }
 }
 
 impl MirrorConfig {
-    /// Creates a new empty mirror configuration
-    ///
-    /// # Returns
-    ///
-    /// A new `MirrorConfig` instance with no repositories
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::new();
-    /// ```
-    pub fn new() -> Self {
-        Self {
-            repositories: Vec::new(),
-            path: None,
-        }
-    }
-    
-    /// Loads a mirror configuration from the default location or environment variable
-    ///
-    /// This method will try to load the configuration from:
-    /// 1. The path specified in the MIRROR_CONFIG_PATH environment variable
-    /// 2. The default location (./mirror.toml)
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the loaded configuration or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::load().unwrap();
-    /// ```
-    pub fn load() -> Result<Self, Error> {
-        // Try to get the path from the environment variable
-        if let Ok(path) = std::env::var(ENV_MIRROR_PATH) {
-            return Self::load_from(Path::new(&path));
+    /// Load configuration from a TOML file
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> ConfigResult<Self> {
+        let path_ref = path.as_ref();
+        
+        if !path_ref.exists() {
+            return Err(ConfigError::FileNotFound {
+                path: path_ref.to_path_buf(),
+            });
         }
         
-        // Fall back to the default location
-        Self::load_from(Path::new(DEFAULT_FILENAME))
-    }
-    
-    /// Loads a mirror configuration from the specified path
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the mirror.toml file
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the loaded configuration or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    /// use std::path::Path;
-    ///
-    /// let config = MirrorConfig::load_from(Path::new("custom/path/mirror.toml")).unwrap();
-    /// ```
-    pub fn load_from<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let path = path.as_ref();
+        let content = fs::read_to_string(path_ref)?;
         
-        // Read the file
-        let mut file = File::open(path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
+        if content.trim().is_empty() {
+            // Empty file is treated as empty configuration
+            return Ok(MirrorConfig::new());
+        }
         
-        // Parse the TOML
-        let mut config: MirrorConfig = toml::from_str(&contents)?;
+        let config: MirrorConfig = toml::from_str(&content)?;
         
-        // Set the path
-        config.path = Some(path.to_path_buf());
+        // Validate the loaded configuration
+        config.validate().map_err(|e| ConfigError::ValidationError {
+            message: e.to_string(),
+        })?;
         
         Ok(config)
     }
     
-    /// Saves the mirror configuration to the default location or the path it was loaded from
-    ///
-    /// # Returns
-    ///
-    /// A `Result` indicating success or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let mut config = MirrorConfig::new();
-    /// config.save().unwrap();
-    /// ```
-    pub fn save(&self) -> Result<(), Error> {
-        if let Some(path) = &self.path {
-            self.save_to(path)
-        } else {
-            self.save_to(Path::new(DEFAULT_FILENAME))
-        }
-    }
-    
-    /// Saves the mirror configuration to the specified path
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to save the mirror.toml file
-    ///
-    /// # Returns
-    ///
-    /// A `Result` indicating success or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    /// use std::path::Path;
-    ///
-    /// let mut config = MirrorConfig::new();
-    /// config.save_to(Path::new("custom/path/mirror.toml")).unwrap();
-    /// ```
-    pub fn save_to<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
-        let path = path.as_ref();
+    /// Save configuration to a TOML file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> ConfigResult<()> {
+        let path_ref = path.as_ref();
         
         // Create parent directories if they don't exist
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = path_ref.parent() {
             fs::create_dir_all(parent)?;
         }
         
-        // Serialize to TOML
-        let toml = toml::to_string_pretty(self)?;
+        // Validate before saving
+        self.validate().map_err(|e| ConfigError::ValidationError {
+            message: e.to_string(),
+        })?;
         
-        // Write to file
-        let mut file = File::create(path)?;
-        file.write_all(toml.as_bytes())?;
-        
-        Ok(())
-    }
-    
-    /// Adds a repository to the configuration
-    ///
-    /// # Arguments
-    ///
-    /// * `repository` - Repository to add
-    ///
-    /// # Returns
-    ///
-    /// A `Result` indicating success or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    /// use mirror_sdk::repository::Repository;
-    ///
-    /// let mut config = MirrorConfig::new();
-    /// let repo = Repository::new(
-    ///     "git@github.com:mirrorboards/example-repo.git",
-    ///     "example/path",
-    /// ).unwrap();
-    /// config.add_repository(repo).unwrap();
-    /// ```
-    pub fn add_repository(&mut self, mut repository: Repository) -> Result<(), Error> {
-        // Generate an ID if one doesn't exist
-        let id = repository.get_id();
-        
-        // Check for duplicate ID
-        if self.repositories.iter().any(|r| r.id == Some(id.clone())) {
-            return Err(Error::DuplicateId(id));
-        }
-        
-        // Allow path collision as per requirements
-        
-        // Add the repository
-        self.repositories.push(repository);
-        
-        Ok(())
-    }
-    
-    /// Removes a repository from the configuration by ID
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - ID of the repository to remove
-    ///
-    /// # Returns
-    ///
-    /// A `Result` indicating success or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let mut config = MirrorConfig::load().unwrap();
-    /// config.remove_repository("repo-id").unwrap();
-    /// ```
-    pub fn remove_repository<S: AsRef<str>>(&mut self, id: S) -> Result<(), Error> {
-        let id = id.as_ref();
-        let initial_len = self.repositories.len();
-        
-        self.repositories.retain(|r| {
-            if let Some(repo_id) = &r.id {
-                repo_id != id
-            } else {
-                true
+        let toml_content = if self.repositories.is_empty() {
+            // Create a template for empty configurations with empty repositories array
+            String::from(r#"# Mirror Configuration File
+#
+# This file defines git repositories to be managed by mctl.
+#
+# Example repository configuration:
+# [[repositories]]
+# git = "git@github.com:org/repo.git"
+# path = "org/repo"
+# branch = "main"
+# skip-push = false
+
+repositories = []
+"#)
+        } else {
+            // Serialize the configuration with custom formatting
+            let mut content = String::from("# Mirror Configuration File\n# Generated by mctl\n\n");
+            
+            for repo in &self.repositories {
+                content.push_str("[[repositories]]\n");
+                content.push_str(&format!("git = \"{}\"\n", repo.git));
+                content.push_str(&format!("path = \"{}\"\n", repo.path));
+                
+                // Only include non-default values
+                if repo.branch != "main" {
+                    content.push_str(&format!("branch = \"{}\"\n", repo.branch));
+                }
+                
+                if repo.skip_push {
+                    content.push_str("skip-push = true\n");
+                }
+                
+                content.push('\n');
             }
-        });
+            
+            content
+        };
         
-        if self.repositories.len() == initial_len {
-            return Err(Error::RepositoryNotFound(id.to_string()));
-        }
+        // Write atomically by using a temporary file
+        let temp_path = path_ref.with_extension("tmp");
+        fs::write(&temp_path, toml_content)?;
+        
+        // Atomic move
+        fs::rename(&temp_path, path_ref)?;
         
         Ok(())
     }
     
-    /// Gets a repository by ID
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - ID of the repository to get
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the repository or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::load().unwrap();
-    /// let repo = config.get_repository("repo-id").unwrap();
-    /// ```
-    pub fn get_repository<S: AsRef<str>>(&self, id: S) -> Result<&Repository, Error> {
-        let id = id.as_ref();
+    /// Create a backup of the configuration file
+    pub fn backup_file<P: AsRef<Path>>(path: P) -> ConfigResult<PathBuf> {
+        let path_ref = path.as_ref();
         
-        self.repositories
-            .iter()
-            .find(|r| r.id.as_ref().map_or(false, |repo_id| repo_id == id))
-            .ok_or_else(|| Error::RepositoryNotFound(id.to_string()))
-    }
-    
-    /// Gets a mutable reference to a repository by ID
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - ID of the repository to get
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing a mutable reference to the repository or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let mut config = MirrorConfig::load().unwrap();
-    /// let repo = config.get_repository_mut("repo-id").unwrap();
-    /// repo.path = "new/path".to_string();
-    /// ```
-    pub fn get_repository_mut<S: AsRef<str>>(&mut self, id: S) -> Result<&mut Repository, Error> {
-        let id = id.as_ref();
-        
-        self.repositories
-            .iter_mut()
-            .find(|r| r.id.as_ref().map_or(false, |repo_id| repo_id == id))
-            .ok_or_else(|| Error::RepositoryNotFound(id.to_string()))
-    }
-    
-    /// Gets all repositories
-    ///
-    /// # Returns
-    ///
-    /// A slice of all repositories
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::load().unwrap();
-    /// for repo in config.get_repositories() {
-    ///     println!("Repository: {:?}", repo);
-    /// }
-    /// ```
-    pub fn get_repositories(&self) -> &[Repository] {
-        &self.repositories
-    }
-    
-    /// Gets all repositories with a specific tag
-    ///
-    /// # Arguments
-    ///
-    /// * `tag` - Tag to filter by
-    ///
-    /// # Returns
-    ///
-    /// A vector of repositories with the specified tag
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::load().unwrap();
-    /// let monorepo_repos = config.get_repositories_by_tag("monorepo");
-    /// ```
-    pub fn get_repositories_by_tag<S: AsRef<str>>(&self, tag: S) -> Vec<&Repository> {
-        let tag = tag.as_ref();
-        
-        self.repositories
-            .iter()
-            .filter(|r| {
-                r.tags.as_ref().map_or(false, |tags| tags.iter().any(|t| t == tag))
-            })
-            .collect()
-    }
-    
-    /// Initializes a new mirror.toml file at the default location
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the new configuration or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    ///
-    /// let config = MirrorConfig::init().unwrap();
-    /// ```
-    pub fn init() -> Result<Self, Error> {
-        Self::init_at(Path::new(DEFAULT_FILENAME))
-    }
-    
-    /// Initializes a new mirror.toml file at the specified path
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to create the mirror.toml file
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the new configuration or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use mirror_sdk::config::MirrorConfig;
-    /// use std::path::Path;
-    ///
-    /// let config = MirrorConfig::init_at(Path::new("custom/path/mirror.toml")).unwrap();
-    /// ```
-    pub fn init_at<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let path = path.as_ref();
-        
-        // Check if the file already exists
-        if path.exists() {
-            return Err(Error::Other(format!("File already exists: {}", path.display())));
+        if !path_ref.exists() {
+            return Err(ConfigError::FileNotFound {
+                path: path_ref.to_path_buf(),
+            });
         }
         
-        // Create a new configuration
-        let config = Self::new();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         
-        // Save it to the specified path
-        config.save_to(path)?;
+        let backup_path = path_ref.with_extension(format!("toml.backup.{}", timestamp));
+        fs::copy(path_ref, &backup_path)?;
         
-        // Return the configuration with the path set
-        Ok(Self {
-            repositories: Vec::new(),
-            path: Some(path.to_path_buf()),
-        })
+        Ok(backup_path)
+    }
+    
+    /// Merge another configuration into this one
+    pub fn merge(&mut self, other: &MirrorConfig) -> ConfigResult<()> {
+        for repo in &other.repositories {
+            // Check if repository already exists by git URL
+            if !self.repositories.iter().any(|r| r.git == repo.git) {
+                self.add_repository(repo.clone()).map_err(|e| ConfigError::ValidationError {
+                    message: e.to_string(),
+                })?;
+            }
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-    
+    use tempfile::NamedTempFile;
+
     #[test]
-    fn test_mirror_config_add_repository() {
-        let mut config = MirrorConfig::new();
-        let repo = Repository::new("git@github.com:mirrorboards/example-repo.git", "example/path")
-            .unwrap()
-            .with_id("test-id");
+    fn test_load_empty_file() {
+        let temp_file = NamedTempFile::new().unwrap();
         
-        config.add_repository(repo).unwrap();
-        
-        assert_eq!(config.repositories.len(), 1);
-        assert_eq!(config.repositories[0].id, Some("test-id".to_string()));
+        let config = MirrorConfig::load_from_file(temp_file.path()).unwrap();
+        assert!(config.is_empty());
     }
     
     #[test]
-    fn test_mirror_config_remove_repository() {
+    fn test_save_and_load_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        
         let mut config = MirrorConfig::new();
-        let repo = Repository::new("git@github.com:mirrorboards/example-repo.git", "example/path")
-            .unwrap()
-            .with_id("test-id");
+        let repo = Repository::new(
+            "git@github.com:org/repo.git".to_string(),
+            "org/repo".to_string(),
+            Some("main".to_string()),
+            Some(false),
+        );
+        config.add_repository(repo.clone()).unwrap();
         
-        config.add_repository(repo).unwrap();
-        config.remove_repository("test-id").unwrap();
+        config.save_to_file(temp_file.path()).unwrap();
         
-        assert_eq!(config.repositories.len(), 0);
+        let loaded_config = MirrorConfig::load_from_file(temp_file.path()).unwrap();
+        assert_eq!(loaded_config.len(), 1);
+        assert_eq!(loaded_config.repositories()[0], repo);
     }
     
     #[test]
-    fn test_mirror_config_save_and_load() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("mirror.toml");
+    fn test_config_manager() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
         
-        // Create a config with a repository
+        // Delete the temp file so we can test creation
+        drop(temp_file);
+        
+        let manager = ConfigManager::new(&temp_path);
+        assert!(!manager.exists());
+        
+        manager.create_empty().unwrap();
+        assert!(manager.exists());
+        
+        let repo = Repository::new(
+            "git@github.com:org/repo.git".to_string(),
+            "org/repo".to_string(),
+            None,
+            None,
+        );
+        
+        manager.add_repository(repo.clone()).unwrap();
+        
+        let repos = manager.list_repositories().unwrap();
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].git, repo.git);
+        
+        let hash = repo.compute_hash();
+        let found = manager.find_repository(&hash[..4]).unwrap();
+        assert!(found.is_some());
+        
+        let removed = manager.remove_repository(&hash[..4]).unwrap();
+        assert_eq!(removed.git, repo.git);
+        
+        let repos_after = manager.list_repositories().unwrap();
+        assert!(repos_after.is_empty());
+    }
+    
+    #[test]
+    fn test_toml_format() {
+        let temp_file = NamedTempFile::new().unwrap();
+        
         let mut config = MirrorConfig::new();
-        let repo = Repository::new("git@github.com:mirrorboards/example-repo.git", "example/path")
-            .unwrap()
-            .with_id("test-id");
+        let repo1 = Repository::new(
+            "git@github.com:org/repo1.git".to_string(),
+            "org/repo1".to_string(),
+            Some("main".to_string()),
+            Some(false),
+        );
+        let repo2 = Repository::new(
+            "https://github.com:org/repo2.git".to_string(),
+            "org/repo2".to_string(),
+            Some("develop".to_string()),
+            Some(true),
+        );
         
-        config.add_repository(repo).unwrap();
+        config.add_repository(repo1).unwrap();
+        config.add_repository(repo2).unwrap();
         
-        // Save it
-        config.save_to(&file_path).unwrap();
+        config.save_to_file(temp_file.path()).unwrap();
         
-        // Load it back
-        let loaded_config = MirrorConfig::load_from(&file_path).unwrap();
+        let content = fs::read_to_string(temp_file.path()).unwrap();
         
-        // Check that it's the same
-        assert_eq!(loaded_config.repositories.len(), 1);
-        assert_eq!(loaded_config.repositories[0].id, Some("test-id".to_string()));
-        assert_eq!(loaded_config.repositories[0].origin, "git@github.com:mirrorboards/example-repo.git");
-        assert_eq!(loaded_config.repositories[0].path, "example/path");
+        // Check that the content contains expected elements
+        assert!(content.contains("[[repositories]]"));
+        assert!(content.contains("git@github.com:org/repo1.git"));
+        assert!(content.contains("https://github.com:org/repo2.git"));
+        assert!(content.contains("path = \"org/repo1\""));
+        assert!(content.contains("path = \"org/repo2\""));
+        assert!(content.contains("branch = \"develop\"")); // Non-default branch
+        assert!(content.contains("skip-push = true")); // Non-default skip-push
+        
+        // Default values should not be explicitly written
+        assert!(!content.contains("branch = \"main\""));
+        assert!(!content.contains("skip-push = false"));
+    }
+    
+    #[test]
+    fn test_backup_functionality() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config = MirrorConfig::new();
+        config.save_to_file(temp_file.path()).unwrap();
+        
+        let backup_path = MirrorConfig::backup_file(temp_file.path()).unwrap();
+        assert!(backup_path.exists());
+        
+        // Backup should have same content
+        let original_content = fs::read_to_string(temp_file.path()).unwrap();
+        let backup_content = fs::read_to_string(&backup_path).unwrap();
+        assert_eq!(original_content, backup_content);
+        
+        // Clean up
+        fs::remove_file(backup_path).unwrap();
+    }
+    
+    #[test]
+    fn test_merge_configurations() {
+        let mut config1 = MirrorConfig::new();
+        let mut config2 = MirrorConfig::new();
+        
+        let repo1 = Repository::new(
+            "git@github.com:org/repo1.git".to_string(),
+            "org/repo1".to_string(),
+            None,
+            None,
+        );
+        let repo2 = Repository::new(
+            "git@github.com:org/repo2.git".to_string(),
+            "org/repo2".to_string(),
+            None,
+            None,
+        );
+        
+        config1.add_repository(repo1).unwrap();
+        config2.add_repository(repo2).unwrap();
+        
+        config1.merge(&config2).unwrap();
+        
+        assert_eq!(config1.len(), 2);
+        assert!(config1.find_by_git_url("git@github.com:org/repo1.git").is_some());
+        assert!(config1.find_by_git_url("git@github.com:org/repo2.git").is_some());
     }
 }

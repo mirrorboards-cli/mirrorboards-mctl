@@ -1,459 +1,412 @@
-//! Diff command implementation
-//!
-//! This module implements git diff functionality across multiple repositories.
-
-use std::path::{Path, PathBuf};
-use git2::{Repository as GitRepository, DiffOptions, DiffFormat};
-use mirror_sdk::MirrorConfig;
-use crate::cli::diff::DiffArgs;
-use crate::output::OutputFormatter;
-use crate::utils::resolve_relative_path;
-use super::{CommandResult, CommandError};
+use anyhow::{Result, Context};
+use mirror_sdk::{ConfigManager, GitManager, RepositoryDiff};
+use super::{Command, print_error, print_info, print_warning, print_verbose};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::BTreeMap;
 use colored::*;
-use glob::Pattern;
+use std::env;
+use std::io::{self, IsTerminal};
 
-/// Statistics for a diff operation
-#[derive(Debug, Default)]
-struct DiffStats {
-    files_changed: usize,
-    insertions: usize,
-    deletions: usize,
+pub struct DiffCommand {
+    pub staged: bool,
+    pub all: bool,
+    pub detailed: bool,
+    pub no_color: bool,
 }
 
-/// Result of a diff operation for a single repository
-#[derive(Debug)]
-struct DiffResult {
-    repository_name: String,
-    repository_path: PathBuf,
-    has_changes: bool,
-    diff_output: String,
-    stats: DiffStats,
-    changed_files: Vec<String>,
-}
-
-/// Execute the diff command
-pub fn execute(args: DiffArgs, formatter: &mut dyn OutputFormatter, config_path: Option<String>) -> CommandResult<()> {
-    // Load the mirror.toml file
-    let config_path_str = config_path.clone().unwrap_or_else(|| "mirror.toml".to_string());
-    let config_path_buf = PathBuf::from(&config_path_str);
-    
-    // Load the mirror.toml file
-    let config = if let Some(path) = config_path {
-        formatter.info(&format!("Loading mirror.toml from {}", path));
-        MirrorConfig::load_from(path)
-    } else {
-        formatter.info("Loading mirror.toml from default location");
-        MirrorConfig::load()
-    }?;
-
-    // Get repositories, filtered by tag and/or ID
-    let repositories = filter_repositories(&config, &args);
-
-    if repositories.is_empty() {
-        formatter.warning("No repositories found matching the specified criteria");
-        return Ok(());
-    }
-
-    formatter.info(&format!("Found {} repositories to diff", repositories.len()));
-
-    // Compile include/exclude patterns
-    let include_patterns: Result<Vec<Pattern>, _> = args.include.iter()
-        .map(|p| Pattern::new(p).map_err(|e| CommandError::Input(format!("Invalid include pattern '{}': {}", p, e))))
-        .collect();
-    let include_patterns = include_patterns?;
-
-    let exclude_patterns: Result<Vec<Pattern>, _> = args.exclude.iter()
-        .map(|p| Pattern::new(p).map_err(|e| CommandError::Input(format!("Invalid exclude pattern '{}': {}", p, e))))
-        .collect();
-    let exclude_patterns = exclude_patterns?;
-
-    // Process each repository
-    let mut diff_results = Vec::new();
-    let mut total_stats = DiffStats::default();
-
-    for repo in repositories {
-        let repo_path_str = &repo.path;
-        let repo_path = resolve_relative_path(&config_path_buf, repo_path_str);
+impl DiffCommand {
+    /// Determine if colors should be used based on environment and flags
+    fn should_use_color(&self) -> bool {
+        // Check --no-color flag first
+        if self.no_color {
+            return false;
+        }
         
-        // Check if repository exists
-        if !repo_path.exists() {
-            formatter.warning(&format!("Repository not found at {}", repo_path.display()));
-            continue;
+        // Check NO_COLOR environment variable
+        if env::var("NO_COLOR").is_ok() {
+            return false;
         }
-
-        // Generate diff for this repository
-        match generate_repository_diff(&repo_path, &args, &include_patterns, &exclude_patterns) {
-            Ok(diff_result) => {
-                // Update total statistics
-                total_stats.files_changed += diff_result.stats.files_changed;
-                total_stats.insertions += diff_result.stats.insertions;
-                total_stats.deletions += diff_result.stats.deletions;
-
-                diff_results.push(diff_result);
-            },
-            Err(e) => {
-                formatter.error(&format!("Failed to generate diff for {}: {}", repo_path.display(), e));
-                continue;
-            }
+        
+        // Check if stdout is a terminal
+        io::stdout().is_terminal()
+    }
+    
+    /// Format diff output with colors
+    fn format_diff_with_colors(&self, diff_content: &str) -> String {
+        if !self.should_use_color() {
+            return diff_content.to_string();
         }
+        
+        diff_content
+            .lines()
+            .map(|line| self.colorize_diff_line(line))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
-
-    // Filter results if changes_only is specified
-    if args.changes_only {
-        diff_results.retain(|result| result.has_changes);
-    }
-
-    // Display results
-    if diff_results.is_empty() && args.changes_only {
-        formatter.success("No repositories with changes found");
-        return Ok(());
-    }
-
-    format_diff_output(&diff_results, &args, formatter, &total_stats)?;
-
-    Ok(())
-}
-
-/// Filter repositories based on tag and ID criteria
-fn filter_repositories<'a>(config: &'a MirrorConfig, args: &DiffArgs) -> Vec<&'a mirror_sdk::Repository> {
-    let mut repositories: Vec<&'a mirror_sdk::Repository> = if let Some(tag) = &args.tag {
-        config.get_repositories_by_tag(tag)
-    } else {
-        config.get_repositories().iter().collect()
-    };
-
-    // Further filter by IDs if specified
-    if !args.id.is_empty() {
-        repositories.retain(|repo| {
-            if let Some(id) = &repo.id {
-                args.id.contains(id)
-            } else {
-                false
-            }
-        });
-    }
-
-    repositories
-}
-
-/// Generate diff for a single repository
-fn generate_repository_diff(
-    repo_path: &Path,
-    args: &DiffArgs,
-    include_patterns: &[Pattern],
-    exclude_patterns: &[Pattern],
-) -> CommandResult<DiffResult> {
-    // Open the git repository
-    let git_repo = GitRepository::open(repo_path).map_err(|e| {
-        CommandError::Other(format!("Failed to open repository at {}: {}", repo_path.display(), e))
-    })?;
-
-    let repo_name = repo_path.file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| repo_path.to_string_lossy().to_string());
-
-    // Set up diff options
-    let mut diff_opts = DiffOptions::new();
-    diff_opts.context_lines(args.context);
-    diff_opts.ignore_whitespace(false);
-
-    // Add pathspec filters if include patterns are specified
-    if !include_patterns.is_empty() {
-        for pattern in include_patterns {
-            diff_opts.pathspec(pattern.as_str());
-        }
-    }
-
-    // Get the diff based on the specified mode
-    let diff = if args.staged {
-        // Staged changes (index vs HEAD)
-        let head_commit = git_repo.head()
-            .map_err(|e| CommandError::Other(format!("Failed to get HEAD: {}", e)))?
-            .peel_to_commit()
-            .map_err(|e| CommandError::Other(format!("Failed to peel HEAD to commit: {}", e)))?;
-        let head_tree = head_commit.tree()
-            .map_err(|e| CommandError::Other(format!("Failed to get HEAD tree: {}", e)))?;
-        let mut index = git_repo.index()
-            .map_err(|e| CommandError::Other(format!("Failed to get index: {}", e)))?;
-        let index_tree_oid = index.write_tree()
-            .map_err(|e| CommandError::Other(format!("Failed to write index tree: {}", e)))?;
-        let index_tree = git_repo.find_tree(index_tree_oid)
-            .map_err(|e| CommandError::Other(format!("Failed to find index tree: {}", e)))?;
-        git_repo.diff_tree_to_tree(Some(&head_tree), Some(&index_tree), Some(&mut diff_opts))
-            .map_err(|e| CommandError::Other(format!("Failed to create staged diff: {}", e)))?
-    } else if let Some(base) = &args.base {
-        if let Some(target) = &args.target {
-            // Commit-to-commit diff
-            let base_obj = git_repo.revparse_single(base)
-                .map_err(|e| CommandError::Other(format!("Failed to resolve base revision '{}': {}", base, e)))?;
-            let target_obj = git_repo.revparse_single(target)
-                .map_err(|e| CommandError::Other(format!("Failed to resolve target revision '{}': {}", target, e)))?;
-            let base_tree = base_obj.peel_to_tree()
-                .map_err(|e| CommandError::Other(format!("Failed to peel base to tree: {}", e)))?;
-            let target_tree = target_obj.peel_to_tree()
-                .map_err(|e| CommandError::Other(format!("Failed to peel target to tree: {}", e)))?;
-            git_repo.diff_tree_to_tree(Some(&base_tree), Some(&target_tree), Some(&mut diff_opts))
-                .map_err(|e| CommandError::Other(format!("Failed to create commit diff: {}", e)))?
+    
+    /// Apply color formatting to a single diff line
+    fn colorize_diff_line(&self, line: &str) -> String {
+        if line.starts_with("diff --git") {
+            // File header - white/bold
+            line.white().bold().to_string()
+        } else if line.starts_with("index ") {
+            // Index line - white
+            line.white().to_string()
+        } else if line.starts_with("--- ") || line.starts_with("+++ ") {
+            // File path lines - white
+            line.white().to_string()
+        } else if line.starts_with("@@") && line.ends_with("@@") {
+            // Hunk header - magenta
+            line.magenta().to_string()
+        } else if line.starts_with('+') {
+            // Added lines - green
+            line.green().to_string()
+        } else if line.starts_with('-') {
+            // Removed lines - red
+            line.red().to_string()
         } else {
-            // Base vs working tree
-            let base_obj = git_repo.revparse_single(base)
-                .map_err(|e| CommandError::Other(format!("Failed to resolve base revision '{}': {}", base, e)))?;
-            let base_tree = base_obj.peel_to_tree()
-                .map_err(|e| CommandError::Other(format!("Failed to peel base to tree: {}", e)))?;
-            git_repo.diff_tree_to_workdir(Some(&base_tree), Some(&mut diff_opts))
-                .map_err(|e| CommandError::Other(format!("Failed to create base vs workdir diff: {}", e)))?
+            // Context lines - normal color
+            line.to_string()
         }
-    } else {
-        // Default: HEAD vs working tree
-        let head_tree = git_repo.head()
-            .and_then(|head| head.peel_to_tree())
-            .ok();
-        git_repo.diff_tree_to_workdir(head_tree.as_ref(), Some(&mut diff_opts))
-            .map_err(|e| CommandError::Other(format!("Failed to create workdir diff: {}", e)))?
-    };
+    }
+    
+    /// Format repository header with color
+    fn format_repository_header(&self, repo_path: &str) -> String {
+        if self.should_use_color() {
+            format!("Repository: {}", repo_path.cyan())
+        } else {
+            format!("Repository: {}", repo_path)
+        }
+    }
+    
+    /// Format section header with color
+    fn format_section_header(&self, header: &str) -> String {
+        if self.should_use_color() {
+            header.yellow().to_string()
+        } else {
+            header.to_string()
+        }
+    }
+}
 
-    // Collect statistics and file information
-    let mut stats = DiffStats::default();
-    let mut changed_files = Vec::new();
-    let mut has_changes = false;
-
-    diff.foreach(
-        &mut |delta, _progress| {
-            let file_path = delta.new_file().path().unwrap_or_else(|| 
-                delta.old_file().path().unwrap_or(std::path::Path::new("unknown"))
+impl Command for DiffCommand {
+    fn execute(&self, config_manager: &ConfigManager, verbose: bool) -> Result<()> {
+        print_verbose("Loading repository configuration", verbose);
+        
+        if !config_manager.exists() {
+            print_warning("Configuration file does not exist. Run 'mctl init' to create one.");
+            return Ok(());
+        }
+        
+        let repositories = config_manager.list_repositories()
+            .context("Failed to load repositories from configuration")?;
+        
+        if repositories.is_empty() {
+            print_info("No repositories configured.");
+            if verbose {
+                println!("Add repositories with: mctl add <git-url>");
+            }
+            return Ok(());
+        }
+        
+        // Filter out repositories with skip_push = true
+        let active_repositories: Vec<_> = repositories.iter()
+            .filter(|repo| !repo.skip_push)
+            .collect();
+        
+        if active_repositories.is_empty() {
+            print_info("No active repositories found (all repositories have skip_push = true).");
+            if verbose {
+                println!("Total repositories configured: {}", repositories.len());
+                println!("Use 'mctl list' to see all repositories including those with skip_push = true");
+            }
+            return Ok(());
+        }
+        
+        print_verbose(&format!("Found {} active repositories (filtered {} with skip_push = true)", 
+            active_repositories.len(), repositories.len() - active_repositories.len()), verbose);
+        
+        // Initialize Git manager
+        let git_manager = GitManager::new_with_verbose(verbose)
+            .context("Failed to initialize Git manager")?;
+        
+        // Setup progress tracking if multiple repos
+        let multi_progress = if active_repositories.len() > 1 {
+            let mp = MultiProgress::new();
+            let main_progress = mp.add(ProgressBar::new(active_repositories.len() as u64));
+            main_progress.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}/{len:3} {msg}")
+                    .unwrap()
+                    .progress_chars("#>-")
             );
-            
-            // Apply exclude patterns
-            if exclude_patterns.iter().any(|pattern| pattern.matches_path(file_path)) {
-                return true; // Skip this file
-            }
-
-            let path_str = file_path.to_string_lossy().to_string();
-            if !changed_files.contains(&path_str) {
-                changed_files.push(path_str);
-                stats.files_changed += 1;
-                has_changes = true;
-            }
-            true
-        },
-        None,
-        None,
-        Some(&mut |_delta, _hunk, line| {
-            match line.origin() {
-                '+' => stats.insertions += 1,
-                '-' => stats.deletions += 1,
-                _ => {}
-            }
-            true
-        }),
-    ).map_err(|e| CommandError::Other(format!("Failed to process diff: {}", e)))?;
-
-    // Generate diff output based on the requested format
-    let diff_output = if args.stat {
-        generate_stat_output(&stats, &changed_files)
-    } else if args.name_only {
-        changed_files.join("\n")
-    } else {
-        generate_full_diff_output(&diff, !args.no_color)?
-    };
-
-    Ok(DiffResult {
-        repository_name: repo_name,
-        repository_path: repo_path.to_path_buf(),
-        has_changes,
-        diff_output,
-        stats,
-        changed_files,
-    })
-}
-
-/// Generate statistics output
-fn generate_stat_output(stats: &DiffStats, changed_files: &[String]) -> String {
-    let mut output = String::new();
-    
-    for file in changed_files {
-        output.push_str(file);
-        output.push('\n');
-    }
-    
-    if !changed_files.is_empty() {
-        output.push('\n');
-    }
-    
-    output.push_str(&format!(
-        "{} file{} changed",
-        stats.files_changed,
-        if stats.files_changed == 1 { "" } else { "s" }
-    ));
-    
-    if stats.insertions > 0 {
-        output.push_str(&format!(", {} insertion{}", stats.insertions, if stats.insertions == 1 { "" } else { "s" }));
-    }
-    
-    if stats.deletions > 0 {
-        output.push_str(&format!(", {} deletion{}", stats.deletions, if stats.deletions == 1 { "" } else { "s" }));
-    }
-    
-    output
-}
-
-/// Generate full diff output with optional coloring
-fn generate_full_diff_output(diff: &git2::Diff, use_color: bool) -> CommandResult<String> {
-    let mut output = String::new();
-    
-    diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
-        let line_str = std::str::from_utf8(line.content()).unwrap_or("<invalid UTF-8>");
-        
-        if use_color {
-            match line.origin() {
-                '+' => output.push_str(&format!("{}{}", "+".green(), line_str.green())),
-                '-' => output.push_str(&format!("{}{}", "-".red(), line_str.red())),
-                '@' => output.push_str(&format!("{}{}", "@".cyan(), line_str.cyan())),
-                ' ' => output.push_str(&format!(" {}", line_str)),
-                _ => output.push_str(line_str),
-            }
+            main_progress.set_message("Checking repository diffs");
+            Some((mp, main_progress))
         } else {
-            match line.origin() {
-                '+' | '-' | '@' | ' ' => output.push_str(&format!("{}{}", line.origin(), line_str)),
-                _ => output.push_str(line_str),
-            }
-        }
-        
-        true
-    }).map_err(|e| CommandError::Other(format!("Failed to generate diff output: {}", e)))?;
-    
-    Ok(output)
-}
-
-/// Format and display the diff output
-fn format_diff_output(
-    diff_results: &[DiffResult],
-    args: &DiffArgs,
-    formatter: &mut dyn OutputFormatter,
-    total_stats: &DiffStats,
-) -> CommandResult<()> {
-    let use_color = !args.no_color;
-    
-    // Separate repositories with changes from those without
-    let (changed_repos, unchanged_repos): (Vec<_>, Vec<_>) = diff_results.iter()
-        .partition(|result| result.has_changes);
-    
-    // Display repositories with changes
-    for (i, result) in changed_repos.iter().enumerate() {
-        if i > 0 {
-            formatter.info(""); // Add spacing between repositories
-        }
-        
-        // Repository header
-        let header = if use_color {
-            format!("{} {}", "→".bold(), result.repository_name.bold().yellow())
-        } else {
-            format!("→ {}", result.repository_name)
+            None
         };
-        formatter.warning(&header);
         
-        // Display diff content
-        if !result.diff_output.is_empty() {
-            // Split output into lines and indent each line
-            for line in result.diff_output.lines() {
-                if line.starts_with("diff --git") || line.starts_with("index ") {
-                    if use_color {
-                        formatter.info(&format!("  {}", line.bright_white().bold()));
-                    } else {
-                        formatter.info(&format!("  {}", line));
+        // Collect diff for each repository
+        let mut repo_diffs: BTreeMap<String, RepositoryDiff> = BTreeMap::new();
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let mut repositories_with_changes = 0;
+        
+        for (index, repo) in active_repositories.iter().enumerate() {
+            let target_path = PathBuf::from(&repo.path);
+            
+            print_verbose(&format!("Checking repository {}/{}: {} -> {}",
+                index + 1, active_repositories.len(), repo.git, target_path.display()), verbose);
+            
+            match git_manager.get_repository_diff(&target_path) {
+                Ok(diff) => {
+                    // Only store repositories that have actual changes
+                    let has_changes = match (&self.staged, &self.all) {
+                        (true, false) => diff.staged_diff.is_some(),
+                        (false, true) => diff.working_diff.is_some() || diff.staged_diff.is_some(),
+                        _ => diff.working_diff.is_some(), // Default: working directory diff
+                    };
+                    
+                    if has_changes {
+                        repo_diffs.insert(repo.path.clone(), diff);
+                        repositories_with_changes += 1;
                     }
-                } else if line.starts_with("+++") || line.starts_with("---") {
-                    if use_color {
-                        formatter.info(&format!("  {}", line.bright_white()));
-                    } else {
-                        formatter.info(&format!("  {}", line));
+                    
+                    if verbose {
+                        let status = if has_changes { "Has changes" } else { "No changes" };
+                        println!("  ✓ {}: {}", repo.path, status);
                     }
-                } else {
-                    formatter.info(&format!("  {}", line));
+                }
+                Err(e) => {
+                    error_count.fetch_add(1, Ordering::SeqCst);
+                    print_error(&format!("Failed to get diff for {}: {}", repo.path, e));
+                }
+            }
+            
+            // Update progress
+            if let Some((_, ref main_progress)) = multi_progress {
+                main_progress.inc(1);
+                main_progress.set_message(format!("Checked {}/{}", index + 1, active_repositories.len()));
+            }
+        }
+        
+        // Finish progress
+        if let Some((mp, main_progress)) = multi_progress {
+            main_progress.finish_with_message("Diff check complete");
+            mp.clear().unwrap_or(());
+        }
+        
+        // Display results
+        if repo_diffs.is_empty() {
+            println!();
+            if error_count.load(Ordering::SeqCst) == 0 {
+                print_info("No repositories have changes to show.");
+            } else {
+                print_warning("No repositories could be processed successfully.");
+            }
+        } else {
+            println!();
+            let diff_type = match (self.staged, self.all) {
+                (true, false) => "Staged Changes",
+                (false, true) => "All Changes",
+                _ => "Working Directory Changes",
+            };
+            print_info(&format!("{} ({} repositories):", diff_type, repo_diffs.len()));
+            
+            for (repo_path, diff) in &repo_diffs {
+                // Find the corresponding repository config for additional details
+                let repo_config = active_repositories.iter()
+                    .find(|r| r.path == *repo_path);
+                
+                println!();
+                println!("{}", self.format_repository_header(repo_path));
+                
+                if self.detailed {
+                    if let Some(config) = repo_config {
+                        println!("Git URL: {}", config.git);
+                        println!("Branch: {}", config.branch);
+                        println!("Hash: {}", config.compute_hash());
+                    }
+                }
+                
+                // Show working directory changes
+                if !self.staged && (self.all || !self.staged) {
+                    if let Some(ref working_diff) = diff.working_diff {
+                        if self.all && diff.staged_diff.is_some() {
+                            println!("{}", self.format_section_header("Working Directory Changes:"));
+                        }
+                        println!("{}", self.format_diff_with_colors(working_diff));
+                    }
+                }
+                
+                // Show staged changes
+                if self.staged || self.all {
+                    if let Some(ref staged_diff) = diff.staged_diff {
+                        if self.all && diff.working_diff.is_some() {
+                            println!("{}", self.format_section_header("Staged Changes:"));
+                        }
+                        println!("{}", self.format_diff_with_colors(staged_diff));
+                    }
                 }
             }
         }
         
-        // Display stats if in stat mode
-        if args.stat && !result.changed_files.is_empty() {
-            let stats_line = format!(
-                "  {} file{} changed",
-                result.stats.files_changed,
-                if result.stats.files_changed == 1 { "" } else { "s" }
-            );
-            
-            let mut full_stats = stats_line;
-            if result.stats.insertions > 0 {
-                full_stats.push_str(&format!(", {} insertion{}", result.stats.insertions, if result.stats.insertions == 1 { "" } else { "s" }));
-            }
-            if result.stats.deletions > 0 {
-                full_stats.push_str(&format!(", {} deletion{}", result.stats.deletions, if result.stats.deletions == 1 { "" } else { "s" }));
-            }
-            
-            if use_color {
-                formatter.info(&full_stats.bright_white().to_string());
-            } else {
-                formatter.info(&full_stats);
-            }
+        // Print summary
+        let errors = error_count.load(Ordering::SeqCst);
+        println!();
+        print_info("Diff Summary:");
+        println!("  • Active repositories checked: {}", active_repositories.len());
+        if repositories.len() > active_repositories.len() {
+            println!("  • Repositories skipped (skip_push = true): {}", repositories.len() - active_repositories.len());
         }
-    }
-    
-    // Display summary for unchanged repositories
-    if !unchanged_repos.is_empty() {
-        // Add spacing if there were changed repositories
-        if !changed_repos.is_empty() {
-            formatter.info("");
+        println!("  • Repositories with changes: {}", repositories_with_changes);
+        if errors > 0 {
+            println!("  • Repositories with errors: {}", errors);
         }
         
-        if unchanged_repos.len() == 1 {
-            // Single unchanged repository - show it normally
-            let result = unchanged_repos[0];
-            let header = if use_color {
-                format!("{} {}", "→".bold(), result.repository_name.bold().yellow())
-            } else {
-                format!("→ {}", result.repository_name)
-            };
-            formatter.warning(&header);
-            formatter.success("  No changes");
-        } else {
-            // Multiple unchanged repositories - show concise summary
-            let summary_message = format!("{} {} {} up to date",
-                unchanged_repos.len(),
-                if unchanged_repos.len() == 1 { "repository" } else { "repositories" },
-                if unchanged_repos.len() == 1 { "is" } else { "are" }
-            );
-            
-            if use_color {
-                formatter.success(&summary_message.green().to_string());
-            } else {
-                formatter.success(&summary_message);
-            }
-        }
-    }
-    
-    // Display total statistics if multiple repositories and there were changes
-    if diff_results.len() > 1 && (args.stat || args.name_only) && total_stats.files_changed > 0 {
-        formatter.info("");
-        let total_line = format!(
-            "Total: {} file{} changed",
-            total_stats.files_changed,
-            if total_stats.files_changed == 1 { "" } else { "s" }
-        );
-        
-        let mut full_total = total_line;
-        if total_stats.insertions > 0 {
-            full_total.push_str(&format!(", {} insertion{}", total_stats.insertions, if total_stats.insertions == 1 { "" } else { "s" }));
-        }
-        if total_stats.deletions > 0 {
-            full_total.push_str(&format!(", {} deletion{}", total_stats.deletions, if total_stats.deletions == 1 { "" } else { "s" }));
+        if verbose {
+            println!();
+            let next_diff_type = if self.staged { "all" } else if self.all { "staged" } else { "staged" };
+            println!("Use 'mctl diff --{}' for different change types", next_diff_type);
+            println!("Use 'mctl status' to see repository status information");
         }
         
-        if use_color {
-            formatter.success(&full_total.bold().to_string());
-        } else {
-            formatter.success(&full_total);
+        if errors > 0 {
+            print_warning("Some repositories could not be processed. See error messages above.");
         }
+        
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use mirror_sdk::Repository;
+
+    fn create_test_repository(git: &str, path: &str, skip_push: bool) -> Repository {
+        Repository::new(
+            git.to_string(),
+            path.to_string(),
+            Some("main".to_string()),
+            Some(skip_push),
+        )
+    }
+
+    #[test]
+    fn test_diff_empty_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Create empty config
+        config_manager.create_empty().unwrap();
+        
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
+        };
+        
+        // Should not error on empty config
+        diff_command.execute(&config_manager, false).unwrap();
     }
     
-    Ok(())
+    #[test]
+    fn test_diff_nonexistent_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        
+        // Delete the temp file so config doesn't exist
+        drop(temp_file);
+        
+        let config_manager = ConfigManager::new(&temp_path);
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
+        };
+        
+        // Should not error on missing config
+        diff_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_diff_with_skip_push_repositories() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repositories - one with skip_push = true
+        let repo1 = create_test_repository("git@github.com:org/repo1.git", "org/repo1", false);
+        let repo2 = create_test_repository("git@github.com:org/repo2.git", "org/repo2", true);
+        
+        config_manager.add_repository(repo1).unwrap();
+        config_manager.add_repository(repo2).unwrap();
+        
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: false,
+            no_color: false,
+        };
+        diff_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_diff_staged_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repository
+        let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
+        config_manager.add_repository(repo).unwrap();
+        
+        let diff_command = DiffCommand {
+            staged: true,
+            all: false,
+            detailed: false,
+            no_color: false,
+        };
+        diff_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_diff_all_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repository
+        let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
+        config_manager.add_repository(repo).unwrap();
+        
+        let diff_command = DiffCommand {
+            staged: false,
+            all: true,
+            detailed: false,
+            no_color: false,
+        };
+        diff_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_diff_detailed_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repository
+        let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
+        config_manager.add_repository(repo).unwrap();
+        
+        let diff_command = DiffCommand {
+            staged: false,
+            all: false,
+            detailed: true,
+            no_color: false,
+        };
+        diff_command.execute(&config_manager, false).unwrap();
+    }
 }

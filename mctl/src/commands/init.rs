@@ -1,52 +1,91 @@
-//! Init command implementation
-//!
-//! This module implements the functionality of the init command,
-//! which initializes a new mirror.toml file.
+use anyhow::{Result, Context};
+use mirror_sdk::ConfigManager;
+use dialoguer::Confirm;
+use super::{Command, print_success, print_warning, print_verbose};
 
-use std::path::Path;
-use mirror_sdk::MirrorConfig;
-use crate::cli::init::InitArgs;
-use crate::output::OutputFormatter;
-use super::{CommandResult, CommandError};
+pub struct InitCommand {
+    pub force: bool,
+}
 
-/// Execute the init command
-pub fn execute(args: InitArgs, formatter: &mut dyn OutputFormatter, config_path: Option<String>) -> CommandResult<()> {
-    // Determine the path to create the mirror.toml file
-    let path = if let Some(path) = args.path {
-        Path::new(&path).to_path_buf()
-    } else if let Some(path) = config_path {
-        Path::new(&path).to_path_buf()
-    } else {
-        Path::new(mirror_sdk::DEFAULT_FILENAME).to_path_buf()
-    };
-
-    formatter.info(&format!("Initializing mirror.toml at {}", path.display()));
-
-    // Check if the file already exists and handle force flag
-    if path.exists() && !args.force {
-        formatter.error(&format!("File already exists at {}", path.display()));
-        formatter.info("Use --force to overwrite the existing file");
-        return Err(CommandError::Input(format!("File already exists at {}", path.display())));
+impl Command for InitCommand {
+    fn execute(&self, config_manager: &ConfigManager, verbose: bool) -> Result<()> {
+        let config_path = config_manager.path();
+        
+        print_verbose(&format!("Initializing configuration at: {}", config_path.display()), verbose);
+        
+        // Check if file already exists
+        if config_manager.exists() && !self.force {
+            print_warning(&format!("Configuration file already exists: {}", config_path.display()));
+            
+            let overwrite = Confirm::new()
+                .with_prompt("Do you want to overwrite the existing file?")
+                .default(false)
+                .interact()
+                .context("Failed to get user confirmation")?;
+            
+            if !overwrite {
+                println!("Initialization cancelled.");
+                return Ok(());
+            }
+        }
+        
+        // Create empty configuration
+        config_manager.create_empty()
+            .context("Failed to create configuration file")?;
+        
+        print_success(&format!("Initialized empty mirror configuration at {}", config_path.display()));
+        
+        if verbose {
+            println!("\nNext steps:");
+            println!("  • Add repositories with: mctl add <git-url>");
+            println!("  • List repositories with: mctl list");
+            println!("  • View help with: mctl --help");
+        }
+        
+        Ok(())
     }
+}
 
-    // Initialize the mirror.toml file
-    let result = if args.force {
-        // If force is specified, create a new config and save it
-        let config = MirrorConfig::new();
-        config.save_to(&path).map(|_| config)
-    } else {
-        // Otherwise, use the SDK's init_at function
-        MirrorConfig::init_at(&path)
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use std::fs;
 
-    match result {
-        Ok(_) => {
-            formatter.success(&format!("Successfully initialized mirror.toml at {}", path.display()));
-            Ok(())
-        }
-        Err(err) => {
-            formatter.error(&format!("Failed to initialize mirror.toml: {}", err));
-            Err(CommandError::Sdk(err))
-        }
+    #[test]
+    fn test_init_new_file() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        
+        // Delete the temp file so we can test creation
+        drop(temp_file);
+        
+        let config_manager = ConfigManager::new(&temp_path);
+        let init_command = InitCommand { force: false };
+        
+        assert!(!config_manager.exists());
+        init_command.execute(&config_manager, false).unwrap();
+        assert!(config_manager.exists());
+        
+        // Verify file contents
+        let content = fs::read_to_string(&temp_path).unwrap();
+        assert!(content.contains("# Mirror Configuration File"));
+    }
+    
+    #[test]
+    fn test_init_force_overwrite() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Create initial content
+        fs::write(temp_file.path(), "existing content").unwrap();
+        
+        let init_command = InitCommand { force: true };
+        init_command.execute(&config_manager, false).unwrap();
+        
+        // Verify file was overwritten
+        let content = fs::read_to_string(temp_file.path()).unwrap();
+        assert!(content.contains("# Mirror Configuration File"));
+        assert!(!content.contains("existing content"));
     }
 }

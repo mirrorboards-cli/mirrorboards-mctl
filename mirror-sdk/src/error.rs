@@ -1,53 +1,230 @@
-//! Error types for mirror-sdk
-//!
-//! This module provides the error types used throughout the mirror-sdk library.
-
-use thiserror::Error;
 use std::path::PathBuf;
+use thiserror::Error;
 
 /// Errors that can occur when working with mirror configurations
 #[derive(Error, Debug)]
-pub enum Error {
-    /// Error occurred during I/O operations
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-
-    /// Error occurred during TOML deserialization
-    #[error("TOML parsing error: {0}")]
-    TomlDe(#[from] toml::de::Error),
-
-    /// Error occurred during TOML serialization
-    #[error("TOML serialization error: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-
-    /// Required field is missing
-    #[error("Missing required field: {0}")]
-    MissingField(String),
-
-    /// Repository with the given ID already exists
-    #[error("Repository with ID '{0}' already exists")]
-    DuplicateId(String),
-
-    /// Repository with the given path already exists
-    #[error("Repository with path '{0}' already exists")]
-    DuplicatePath(String),
-
-    /// Repository with the given ID was not found
-    #[error("Repository with ID '{0}' not found")]
-    RepositoryNotFound(String),
-
-    /// Configuration file not found
-    #[error("Configuration file not found at {0}")]
-    ConfigNotFound(PathBuf),
-
-    /// Invalid configuration file
-    #[error("Invalid configuration file: {0}")]
-    InvalidConfig(String),
-
-    /// Other errors
-    #[error("{0}")]
-    Other(String),
+pub enum ConfigError {
+    #[error("Configuration file not found: {path}")]
+    FileNotFound { path: PathBuf },
+    
+    #[error("Failed to read configuration file: {source}")]
+    ReadError {
+        #[from]
+        source: std::io::Error,
+    },
+    
+    #[error("Invalid TOML format: {source}")]
+    InvalidToml {
+        #[from]
+        source: toml::de::Error,
+    },
+    
+    #[error("Failed to serialize configuration: {source}")]
+    SerializationError {
+        #[from]
+        source: toml::ser::Error,
+    },
+    
+    #[error("Repository with hash '{hash}' not found")]
+    RepositoryNotFound { hash: String },
+    
+    #[error("Repository with hash '{hash}' already exists (git: {existing_git})")]
+    DuplicateRepository {
+        hash: String,
+        existing_git: String
+    },
+    
+    #[error("Path conflict detected: '{path}' is already used by repository '{existing_git}', cannot be used by '{new_git}'")]
+    PathConflict {
+        path: String,
+        existing_git: String,
+        new_git: String
+    },
+    
+    #[error("Configuration validation failed: {message}")]
+    ValidationError { message: String },
 }
 
-/// Result type for mirror-sdk operations
-pub type Result<T> = std::result::Result<T, Error>;
+/// Errors that can occur when working with repository definitions
+#[derive(Error, Debug)]
+pub enum RepositoryError {
+    #[error("Invalid git URL format: {url}")]
+    InvalidUrl { url: String },
+    
+    #[error("Unsupported URL scheme: {scheme}")]
+    UnsupportedScheme { scheme: String },
+    
+    #[error("Could not extract organization/repository from URL: {url}")]
+    PathExtractionFailed { url: String },
+    
+    #[error("Invalid branch name: {branch}")]
+    InvalidBranch { branch: String },
+    
+    #[error("Invalid path: {path}")]
+    InvalidPath { path: String },
+    
+    #[error("Path traversal attempt detected: {path}")]
+    PathTraversalAttempt { path: String },
+    
+    #[error("Path exceeds maximum length ({max}): {path}")]
+    PathTooLong { path: String, max: usize },
+    
+    #[error("Path contains dangerous patterns: {path}")]
+    DangerousPath { path: String },
+    
+    #[error("Path is outside allowed base directories: {path}")]
+    PathOutsideBase { path: String },
+}
+
+/// Errors that can occur during hash generation
+#[derive(Error, Debug)]
+pub enum HashError {
+    #[error("Hash collision detected for repository: {git}")]
+    Collision { git: String },
+    
+    #[error("Invalid hash format: {hash}")]
+    InvalidFormat { hash: String },
+}
+
+/// Errors that can occur during SSH operations
+#[derive(Error, Debug)]
+pub enum SshError {
+    #[error("Failed to initialize SSH session: {message}")]
+    SessionInitError { message: String },
+    
+    #[error("SSH agent connection failed: {message}")]
+    AgentConnectionError { message: String },
+    
+    #[error("SSH agent has no keys loaded")]
+    AgentEmptyError,
+    
+    #[error("SSH key file not found: {path}")]
+    KeyFileNotFound { path: std::path::PathBuf },
+    
+    #[error("Invalid SSH key format: {path}")]
+    InvalidKeyFormat { path: std::path::PathBuf },
+    
+    #[error("SSH key authentication failed for key: {path}")]
+    KeyAuthenticationFailed { path: std::path::PathBuf },
+    
+    #[error("SSH agent authentication failed")]
+    AgentAuthenticationFailed,
+    
+    #[error("No usable SSH keys found (checked agent and filesystem)")]
+    NoUsableKeysError,
+    
+    #[error("SSH timeout: operation took too long")]
+    TimeoutError,
+    
+    #[error("SSH I/O error: {source}")]
+    IoError {
+        #[from]
+        source: std::io::Error,
+    },
+}
+
+/// Errors that can occur during Git operations
+#[derive(Error, Debug)]
+pub enum GitError {
+    #[error("Git repository not found: {path}")]
+    RepositoryNotFound { path: PathBuf },
+    
+    #[error("No changes to commit in repository")]
+    NoChangesToCommit,
+    
+    #[error("Repository has uncommitted changes that conflict with operation")]
+    UncommittedChanges,
+    
+    #[error("Branch '{branch}' does not exist on remote")]
+    BranchNotFound { branch: String },
+    
+    #[error("Repository is not a valid git repository: {path}")]
+    NotGitRepository { path: PathBuf },
+    
+    #[error("Working directory is not clean: {details}")]
+    WorkingDirectoryNotClean { details: String },
+    
+    #[error("Git operation failed: {message}")]
+    OperationFailed { message: String },
+    
+    #[error("Authentication failed after {attempts} attempts")]
+    AuthenticationFailed { attempts: usize },
+    
+    #[error("Clone operation failed: {url} -> {path}: {message}")]
+    CloneFailed {
+        url: String,
+        path: PathBuf,
+        message: String
+    },
+    
+    #[error("Pull operation failed: {path}: {message}")]
+    PullFailed {
+        path: PathBuf,
+        message: String
+    },
+    
+    #[error("Push operation failed: {path}: {message}")]
+    PushFailed {
+        path: PathBuf,
+        message: String
+    },
+    
+    #[error("Remote operation failed: {message}")]
+    RemoteFailed { message: String },
+    
+    #[error("Invalid repository state: {message}")]
+    InvalidState { message: String },
+    
+    #[error("Git credential callback error: {message}")]
+    CredentialError { message: String },
+    
+    #[error("Max authentication attempts exceeded ({max_attempts})")]
+    MaxAttemptsExceeded { max_attempts: usize },
+    
+    #[error("Progress reporting error: {message}")]
+    ProgressError { message: String },
+    
+    #[error("SSH authentication error: {source}")]
+    SshError {
+        #[from]
+        source: SshError,
+    },
+    
+    #[error("Git2 library error: {source}")]
+    Git2Error {
+        #[source]
+        source: git2::Error,
+    },
+    
+    #[error("I/O error during git operation: {source}")]
+    IoError {
+        #[from]
+        source: std::io::Error,
+    },
+}
+
+/// Combined error type for all SDK operations
+#[derive(Error, Debug)]
+pub enum MirrorSdkError {
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+    
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+    
+    #[error(transparent)]
+    Hash(#[from] HashError),
+    
+    #[error(transparent)]
+    Ssh(#[from] SshError),
+    
+    #[error(transparent)]
+    Git(#[from] GitError),
+}
+
+pub type Result<T> = std::result::Result<T, MirrorSdkError>;
+pub type ConfigResult<T> = std::result::Result<T, ConfigError>;
+pub type RepositoryResult<T> = std::result::Result<T, RepositoryError>;
+pub type HashResult<T> = std::result::Result<T, HashError>;
+pub type SshResult<T> = std::result::Result<T, SshError>;
+pub type GitResult<T> = std::result::Result<T, GitError>;

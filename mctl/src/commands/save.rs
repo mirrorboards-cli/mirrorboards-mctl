@@ -1,343 +1,322 @@
-//! Save command implementation
-//!
-//! This module implements the functionality of the save command,
-//! which commits and pushes all changes in repositories defined in a mirror.toml file.
+use anyhow::{Result, Context};
+use mirror_sdk::{ConfigManager, GitManager};
+use super::{Command, print_error, print_info, print_success, print_verbose, print_warning};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use chrono::Utc;
 
-use std::path::{Path, PathBuf};
-use git2::{Repository as GitRepository, Cred, RemoteCallbacks, PushOptions, CredentialType, Signature};
-use mirror_sdk::MirrorConfig;
-use crate::cli::save::SaveArgs;
-use crate::output::OutputFormatter;
-use crate::utils::{resolve_relative_path, resolve_ssh_key_path, get_ssh_key, set_ssh_key};
-use super::{CommandResult, CommandError};
-use chrono::Local;
+pub struct SaveCommand {
+    pub message: Option<String>,
+}
 
-/// Execute the save command
-pub fn execute(args: SaveArgs, formatter: &mut dyn OutputFormatter, config_path: Option<String>) -> CommandResult<()> {
-    // Load the mirror.toml file
-    let config_path_str = config_path.clone().unwrap_or_else(|| "mirror.toml".to_string());
-    let config_path_buf = PathBuf::from(&config_path_str);
-    
-    let config = if let Some(path) = config_path {
-        formatter.info(&format!("Loading mirror.toml from {}", path));
-        MirrorConfig::load_from(path)
-    } else {
-        formatter.info("Loading mirror.toml from default location");
-        MirrorConfig::load()
-    }?;
-
-    // Get repositories, optionally filtered by tag
-    let repositories = if let Some(tag) = &args.tag {
-        formatter.info(&format!("Filtering repositories by tag: {}", tag));
-        config.get_repositories_by_tag(tag)
-    } else {
-        formatter.info("Processing all repositories");
-        config.get_repositories().iter().collect()
-    };
-
-    if repositories.is_empty() {
-        formatter.warning("No repositories found");
-        return Ok(());
-    }
-
-    formatter.info(&format!("Found {} repositories to save", repositories.len()));
-
-    // Store authentication settings
-    let use_auth = !args.no_auth;
-    let use_push = !args.no_push;
-
-    // Determine SSH key path with fallback hierarchy
-    let ssh_key_path = if let Some(cli_ssh_key) = &args.ssh_key {
-        // User provided via CLI - save to config for future use
-        formatter.info(&format!("Saving SSH key path '{}' to config for future use", cli_ssh_key));
-        if let Err(e) = set_ssh_key(cli_ssh_key) {
-            formatter.warning(&format!("Failed to save SSH key to config: {}", e));
-        }
-        Some(resolve_ssh_key_path(cli_ssh_key)?)
-    } else {
-        // Check config file for saved SSH key
-        match get_ssh_key()? {
-            Some(saved_ssh_key) => {
-                formatter.info(&format!("Using saved SSH key from config: {}", &saved_ssh_key));
-                Some(resolve_ssh_key_path(&saved_ssh_key)?)
-            }
-            None => {
-                if use_auth {
-                    formatter.info("No SSH key specified, will use SSH agent authentication");
-                }
-                None
-            }
-        }
-    };
-
-    // Generate timestamp for commit messages
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    // Process each repository
-    for repo in repositories {
-        let repo_path_str = &repo.path;
-        let repo_path = resolve_relative_path(&config_path_buf, repo_path_str);
+impl Command for SaveCommand {
+    fn execute(&self, config_manager: &ConfigManager, verbose: bool) -> Result<()> {
+        print_verbose("Starting save operation", verbose);
         
-        // Check if repository exists
-        if !repo_path.exists() {
-            formatter.warning(&format!("Repository not found at {}", repo_path.display()));
-            continue;
+        if !config_manager.exists() {
+            print_warning("Configuration file does not exist. Run 'mctl init' to create one.");
+            return Ok(());
         }
-
-        // Open the git repository
-        let git_repo = match GitRepository::open(&repo_path) {
-            Ok(repo) => repo,
-            Err(e) => {
-                formatter.error(&format!("Failed to open repository at {}: {}", repo_path.display(), e));
-                continue;
+        
+        let repositories = config_manager.list_repositories()
+            .context("Failed to load repositories from configuration")?;
+        
+        if repositories.is_empty() {
+            print_info("No repositories configured.");
+            if verbose {
+                println!("Add repositories with: mctl add <git-url>");
             }
-        };
-
-        // Get repository name for commit message
-        let repo_name = repo_path.file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo.id.clone().unwrap_or_else(|| "unknown".to_string()));
-
-        formatter.info(&format!("Processing repository: {}", repo_name));
-
-        // Stage all changes including untracked files (git add .)
-        formatter.info(&format!("Staging all files (including untracked) in {}", repo_name));
-        let mut index = match git_repo.index() {
-            Ok(index) => index,
-            Err(e) => {
-                formatter.error(&format!("Failed to get index for {}: {}", repo_name, e));
-                continue;
-            }
-        };
-
-        // Add all files in working directory to index, including untracked and hidden files
-        // Use "." as pathspec to capture everything recursively, including hidden files/directories
-        if let Err(e) = index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None) {
-            formatter.error(&format!("Failed to stage changes in {}: {}", repo_name, e));
-            continue;
+            return Ok(());
         }
-
-        // Write the index
-        if let Err(e) = index.write() {
-            formatter.error(&format!("Failed to write index for {}: {}", repo_name, e));
-            continue;
+        
+        // Filter out repositories with skip_push = true
+        let active_repositories: Vec<_> = repositories.iter()
+            .filter(|repo| !repo.skip_push)
+            .collect();
+        
+        if active_repositories.is_empty() {
+            print_info("No active repositories found (all repositories have skip_push = true).");
+            if verbose {
+                println!("Total repositories configured: {}", repositories.len());
+                println!("Use 'mctl list' to see all repositories including those with skip_push = true");
+            }
+            return Ok(());
         }
-
-        // Check if there are any changes to commit
-        let tree_id = match index.write_tree() {
-            Ok(id) => id,
-            Err(e) => {
-                formatter.error(&format!("Failed to write tree for {}: {}", repo_name, e));
-                continue;
+        
+        print_verbose(&format!("Found {} active repositories (filtered {} with skip_push = true)", 
+            active_repositories.len(), repositories.len() - active_repositories.len()), verbose);
+        
+        // Generate commit message
+        let commit_message = match &self.message {
+            Some(msg) => msg.clone(),
+            None => {
+                let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+                format!("save {}", timestamp)
             }
         };
-
-        // Get the tree object
-        let tree = match git_repo.find_tree(tree_id) {
-            Ok(tree) => tree,
-            Err(e) => {
-                formatter.error(&format!("Failed to find tree for {}: {}", repo_name, e));
+        
+        print_verbose(&format!("Commit message: \"{}\"", commit_message), verbose);
+        
+        // Initialize Git manager
+        let git_manager = GitManager::new_with_verbose(verbose)
+            .context("Failed to initialize Git manager")?;
+        
+        // Setup progress tracking if multiple repos
+        let multi_progress = if active_repositories.len() > 1 {
+            let mp = MultiProgress::new();
+            let main_progress = mp.add(ProgressBar::new(active_repositories.len() as u64));
+            main_progress.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}/{len:3} {msg}")
+                    .unwrap()
+                    .progress_chars("#>-")
+            );
+            main_progress.set_message("Saving repositories");
+            Some((mp, main_progress))
+        } else {
+            None
+        };
+        
+        // Process each repository
+        let mut success_count = 0;
+        let mut skipped_count = 0;
+        let error_count = Arc::new(AtomicUsize::new(0));
+        
+        for (index, repo) in active_repositories.iter().enumerate() {
+            let target_path = PathBuf::from(&repo.path);
+            
+            print_verbose(&format!("Processing repository {}/{}: {} -> {}",
+                index + 1, active_repositories.len(), repo.git, target_path.display()), verbose);
+            
+            // Safely validate and check if repository exists and is a git repository
+            let path_validator = mirror_sdk::PathValidator::new();
+            
+            if !target_path.exists() {
+                print_warning(&format!("Repository {} does not exist locally, skipping", repo.path));
+                skipped_count += 1;
                 continue;
             }
-        };
-
-        // Check if this is the same as HEAD (no changes to commit)
-        let has_head = git_repo.head().is_ok();
-        if has_head {
-            if let Ok(head_commit) = git_repo.head().and_then(|r| r.peel_to_commit()) {
-                if head_commit.tree_id() == tree_id {
-                    formatter.info(&format!("No changes to commit in {}", repo_name));
+            
+            // Securely check if the target path is a git repository
+            match path_validator.has_git_directory(&target_path) {
+                Ok(true) => {
+                    // Path is safe and contains a .git directory
+                }
+                Ok(false) => {
+                    print_warning(&format!("Repository {} is not a git repository, skipping", repo.path));
+                    skipped_count += 1;
+                    continue;
+                }
+                Err(e) => {
+                    print_warning(&format!("Cannot safely access repository {}: {}, skipping", repo.path, e));
+                    skipped_count += 1;
                     continue;
                 }
             }
-        }
-
-        // Create commit message
-        let commit_message = if let Some(ref custom_message) = args.message {
-            custom_message.clone()
-        } else {
-            // Extract org from origin URL for default message format
-            let org = extract_org_from_origin(&repo.origin).unwrap_or_else(|| "unknown".to_string());
-            format!("{}/{} - {}", org, repo_name, timestamp)
-        };
-
-        // Create signature
-        let signature = match create_git_signature(&git_repo) {
-            Ok(sig) => sig,
-            Err(e) => {
-                formatter.error(&format!("Failed to create signature for {}: {}", repo_name, e));
-                continue;
+            
+            match self.save_repository(&git_manager, &target_path, &commit_message, verbose) {
+                Ok(()) => {
+                    success_count += 1;
+                    if verbose {
+                        print_success(&format!("Successfully saved repository: {}", repo.path));
+                    }
+                }
+                Err(e) => {
+                    // Check if this is a "no changes" error using proper error matching
+                    if let Some(git_error) = e.downcast_ref::<mirror_sdk::GitError>() {
+                        match git_error {
+                            mirror_sdk::GitError::NoChangesToCommit => {
+                                skipped_count += 1;
+                                if verbose {
+                                    print_info(&format!("Repository {} has no changes, skipped", repo.path));
+                                }
+                            }
+                            _ => {
+                                error_count.fetch_add(1, Ordering::SeqCst);
+                                print_error(&format!("Failed to save repository {}: {}", repo.path, e));
+                                if verbose {
+                                    let mut source = e.source();
+                                    while let Some(err) = source {
+                                        eprintln!("  Caused by: {}", err);
+                                        source = err.source();
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // For non-GitError types, treat as general error
+                        error_count.fetch_add(1, Ordering::SeqCst);
+                        print_error(&format!("Failed to save repository {}: {}", repo.path, e));
+                        if verbose {
+                            let mut source = e.source();
+                            while let Some(err) = source {
+                                eprintln!("  Caused by: {}", err);
+                                source = err.source();
+                            }
+                        }
+                    }
+                }
             }
-        };
-
-        // Create the commit with proper parent handling
-        let commit_id = if has_head {
-            if let Ok(head_commit) = git_repo.head().and_then(|r| r.peel_to_commit()) {
-                git_repo.commit(
-                    Some("HEAD"),
-                    &signature,
-                    &signature,
-                    &commit_message,
-                    &tree,
-                    &[&head_commit],
-                )
-            } else {
-                git_repo.commit(
-                    Some("HEAD"),
-                    &signature,
-                    &signature,
-                    &commit_message,
-                    &tree,
-                    &[],
-                )
+            
+            // Update progress
+            if let Some((_, ref main_progress)) = multi_progress {
+                main_progress.inc(1);
+                main_progress.set_message(format!("Saved {}/{}", index + 1, active_repositories.len()));
             }
-        } else {
-            git_repo.commit(
-                Some("HEAD"),
-                &signature,
-                &signature,
-                &commit_message,
-                &tree,
-                &[],
-            )
-        };
-
-        let commit_id = match commit_id {
-            Ok(id) => id,
-            Err(e) => {
-                formatter.error(&format!("Failed to create commit in {}: {}", repo_name, e));
-                continue;
-            }
-        };
-
-        formatter.success(&format!("Committed changes in {} ({})", repo_name, commit_id));
-
-        // Push to remote if not skipped
-        if use_push {
-            if let Err(e) = push_to_remote(&git_repo, &ssh_key_path, formatter, &repo_name, use_auth) {
-                formatter.error(&format!("Failed to push {}: {}", repo_name, e));
-                continue;
-            }
-            formatter.success(&format!("Pushed changes in {}", repo_name));
-        }
-    }
-
-    if use_push {
-        formatter.success("Save completed successfully (committed and pushed)");
-    } else {
-        formatter.success("Save completed successfully (committed only)");
-    }
-    Ok(())
-}
-
-/// Extract organization name from git origin URL
-fn extract_org_from_origin(origin: &str) -> Option<String> {
-    // Handle GitHub SSH URLs like git@github.com:org/repo.git
-    if origin.starts_with("git@github.com:") {
-        if let Some(path) = origin.strip_prefix("git@github.com:") {
-            if let Some(org) = path.split('/').next() {
-                return Some(org.to_string());
-            }
-        }
-    }
-    
-    // Handle HTTPS URLs like https://github.com/org/repo.git
-    if origin.starts_with("https://github.com/") {
-        if let Some(path) = origin.strip_prefix("https://github.com/") {
-            if let Some(org) = path.split('/').next() {
-                return Some(org.to_string());
-            }
-        }
-    }
-    
-    // For other URLs, try to extract from path
-    if let Some(last_slash) = origin.rfind('/') {
-        if let Some(second_last_slash) = origin[..last_slash].rfind('/') {
-            let org = &origin[second_last_slash + 1..last_slash];
-            if !org.is_empty() {
-                return Some(org.to_string());
-            }
-        }
-    }
-    
-    None
-}
-
-/// Create a git signature for commits
-fn create_git_signature(repo: &GitRepository) -> Result<Signature, git2::Error> {
-    // Try to get signature from git config
-    let config = repo.config()?;
-    
-    let name = config.get_string("user.name")
-        .unwrap_or_else(|_| "mctl user".to_string());
-    let email = config.get_string("user.email")
-        .unwrap_or_else(|_| "mctl@example.com".to_string());
-    
-    Signature::now(&name, &email)
-}
-
-/// Push changes to remote repository
-fn push_to_remote(
-    git_repo: &GitRepository,
-    ssh_key_path: &Option<PathBuf>,
-    formatter: &mut dyn OutputFormatter,
-    repo_name: &str,
-    use_auth: bool,
-) -> Result<(), git2::Error> {
-    // Get the current branch name
-    let head = git_repo.head()?;
-    let branch_name = if let Some(name) = head.shorthand() {
-        name
-    } else {
-        return Err(git2::Error::from_str("Could not determine current branch"));
-    };
-
-    // Get remote
-    let mut remote = git_repo.find_remote("origin")?;
-
-    // Set up authentication if needed
-    let mut push_options = PushOptions::new();
-    if use_auth {
-        formatter.info(&format!("Setting up SSH authentication for {}", repo_name));
-        if let Some(ref key_path) = ssh_key_path {
-            formatter.info(&format!("Using SSH key from path: {}", key_path.display()));
-        } else {
-            formatter.info(&format!("Using SSH key from agent for {}", repo_name));
         }
         
-        let mut callbacks = RemoteCallbacks::new();
-        let ssh_key = ssh_key_path.clone();
-        callbacks.credentials(move |_url, username_from_url, allowed_types| {
-            // Check if SSH key authentication is allowed
-            if allowed_types.contains(CredentialType::SSH_KEY) ||
-               allowed_types.contains(CredentialType::SSH_MEMORY) {
-                // Use the provided SSH key if specified
-                if let Some(ref key_path) = ssh_key {
-                    Cred::ssh_key(
-                        username_from_url.unwrap_or("git"),
-                        None,
-                        key_path.as_path(),
-                        None,
-                    )
-                } else {
-                    // Try to use the default SSH key from the agent
-                    Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-                }
-            } else if allowed_types.contains(CredentialType::USER_PASS_PLAINTEXT) {
-                // Fall back to default credentials if SSH is not allowed
-                Cred::default()
-            } else {
-                // Last resort: try SSH key authentication anyway
-                Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-            }
+        // Finish progress
+        if let Some((mp, main_progress)) = multi_progress {
+            main_progress.finish_with_message("Save operation complete");
+            mp.clear().unwrap_or(());
+        }
+        
+        // Print summary
+        let errors = error_count.load(Ordering::SeqCst);
+        println!();
+        print_info("Save Summary:");
+        println!("  • Repositories processed: {}", active_repositories.len());
+        println!("  • Successful saves: {}", success_count);
+        if skipped_count > 0 {
+            println!("  • Repositories with no changes: {}", skipped_count);
+        }
+        if errors > 0 {
+            println!("  • Repositories with errors: {}", errors);
+        }
+        
+        if verbose {
+            println!();
+            println!("Note: Save operation processes all configured repositories with changes");
+            println!("Use 'mctl list' to see all configured repositories");
+        }
+        
+        if errors > 0 {
+            print_warning("Some repositories could not be saved. See error messages above.");
+        } else if success_count > 0 {
+            print_success("All active repositories saved successfully!");
+        }
+        
+        Ok(())
+    }
+}
+
+impl SaveCommand {
+    /// Save a single repository by performing git add --all, commit, and push
+    fn save_repository(&self, git_manager: &GitManager, repo_path: &PathBuf, commit_message: &str, verbose: bool) -> Result<()> {
+        print_verbose(&format!("Starting save operation for: {}", repo_path.display()), verbose);
+        
+        // Step 1: Check if there are any changes to commit
+        print_verbose("Checking for changes...", verbose);
+        let detailed_status = git_manager.get_detailed_repository_status(repo_path)
+            .context("Failed to get repository status")?;
+        
+        // Check if there are any files with changes (working directory or staged)
+        let has_changes = detailed_status.files.iter().any(|file| {
+            file.working_dir_status != mirror_sdk::git::FileChangeType::Unmodified ||
+            file.index_status != mirror_sdk::git::FileChangeType::Unmodified
         });
         
-        push_options.remote_callbacks(callbacks);
+        if !has_changes {
+            print_verbose("No changes to commit, skipping", verbose);
+            return Err(mirror_sdk::GitError::NoChangesToCommit.into());
+        }
+        
+        print_verbose(&format!("Found {} files with changes", detailed_status.files.len()), verbose);
+        
+        // Step 2: git add --all
+        print_verbose("Staging all changes...", verbose);
+        git_manager.add_all(repo_path)
+            .context("Failed to stage all changes")?;
+        
+        // Step 3: git commit
+        print_verbose(&format!("Creating commit with message: \"{}\"", commit_message), verbose);
+        git_manager.commit(repo_path, commit_message)
+            .context("Failed to create commit")?;
+        
+        // Step 4: git push to current branch
+        let current_branch = git_manager.get_current_branch(repo_path)
+            .context("Failed to get current branch name")?;
+        
+        print_verbose(&format!("Pushing to branch: {}", current_branch), verbose);
+        git_manager.push_to_current_branch(repo_path)
+            .context("Failed to push to remote")?;
+        
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use mirror_sdk::Repository;
+
+    fn create_test_repository(git: &str, path: &str, skip_push: bool) -> Repository {
+        Repository::new(
+            git.to_string(),
+            path.to_string(),
+            Some("main".to_string()),
+            Some(skip_push),
+        )
     }
 
-    // Push the current branch
-    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
-    remote.push(&[&refspec], Some(&mut push_options))?;
-
-    Ok(())
+    #[test]
+    fn test_save_empty_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Create empty config
+        config_manager.create_empty().unwrap();
+        
+        let save_command = SaveCommand { message: None };
+        
+        // Should not error on empty config
+        save_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_save_nonexistent_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        
+        // Delete the temp file so config doesn't exist
+        drop(temp_file);
+        
+        let config_manager = ConfigManager::new(&temp_path);
+        let save_command = SaveCommand { message: None };
+        
+        // Should not error on missing config
+        save_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_save_with_custom_message() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repository
+        let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
+        config_manager.add_repository(repo).unwrap();
+        
+        let save_command = SaveCommand { message: Some("Custom commit message".to_string()) };
+        save_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_save_with_skip_push_repositories() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repositories - one with skip_push = true
+        let repo1 = create_test_repository("git@github.com:org/repo1.git", "org/repo1", false);
+        let repo2 = create_test_repository("git@github.com:org/repo2.git", "org/repo2", true);
+        
+        config_manager.add_repository(repo1).unwrap();
+        config_manager.add_repository(repo2).unwrap();
+        
+        let save_command = SaveCommand { message: None };
+        save_command.execute(&config_manager, false).unwrap();
+    }
 }

@@ -1,140 +1,147 @@
 //! # Mirror SDK
-//!
-//! A Rust library for managing mirror.toml configuration files in MirrorBoards projects.
-//!
-//! This SDK provides functionality to create, read, update, and delete mirror.toml files,
-//! which are used to manage repository configurations in MirrorBoards projects.
-//!
+//! 
+//! A Rust SDK for managing mirror.toml configuration files that define collections
+//! of git repositories for large-scale IT projects.
+//! 
 //! ## Features
-//!
-//! - Create, read, update, and delete mirror.toml files
-//! - Manage repository configurations (add, remove, update)
-//! - Auto-generate repository IDs
-//! - Support for custom paths and environment variable configuration
-//! - Clean, well-documented API with proper error handling
-//!
-//! ## Example
-//!
-//! ```rust,no_run
-//! use mirror_sdk::{MirrorConfig, Repository};
-//! use std::path::Path;
-//!
-//! fn main() -> Result<(), mirror_sdk::Error> {
-//!     // Initialize a new mirror configuration
-//!     let mut config = MirrorConfig::new();
-//!     
-//!     // Add a repository
-//!     config.add_repository(Repository::new(
-//!         "git@github.com:mirrorboards/example-repo.git",
-//!         "example/path",
-//!     )?)?;
-//!     
-//!     // Save the configuration to the default location (./mirror.toml)
-//!     config.save()?;
-//!     
-//!     // Or specify a custom path
-//!     config.save_to(Path::new("custom/path/mirror.toml"))?;
-//!     
-//!     Ok(())
-//! }
+//! 
+//! - Parse and generate mirror.toml files
+//! - Generate unique hash IDs for repositories
+//! - Support both SSH and HTTPS git URL formats
+//! - Comprehensive error handling
+//! - Configuration validation
+//! 
+//! ## Quick Start
+//! 
+//! ```rust
+//! use mirror_sdk::{MirrorConfig, Repository, ConfigManager};
+//! 
+//! // Create a new repository configuration
+//! let repo = Repository::from_url("git@github.com:org/repo.git".to_string())?;
+//! 
+//! // Create and manage configuration
+//! let mut config = MirrorConfig::new();
+//! config.add_repository(repo)?;
+//! 
+//! // Save to file
+//! let manager = ConfigManager::new("mirror.toml");
+//! manager.save(&config)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//! 
+//! ## Configuration Format
+//! 
+//! The mirror.toml file uses the following format:
+//! 
+//! ```toml
+//! [[repositories]]
+//! git = "git@github.com:org/repo.git"
+//! path = "org/repo"
+//! branch = "main"        # optional, defaults to "main"
+//! skip-push = false      # optional, defaults to false
 //! ```
 
-// Module declarations
 pub mod config;
-pub mod repository;
 pub mod error;
-mod utils;
+pub mod git;
+pub mod hash;
+pub mod models;
+pub mod security;
+pub mod ssh;
+pub mod url_parser;
 
-// Re-exports for public API
-pub use config::{MirrorConfig, DEFAULT_FILENAME, ENV_MIRROR_PATH};
-pub use repository::Repository;
-pub use error::{Error, Result};
+// Re-export main types for easier access
+pub use config::ConfigManager;
+pub use error::{ConfigError, ConfigResult, GitError, GitResult, HashError, MirrorSdkError, RepositoryError, RepositoryResult, Result, SshError, SshResult};
+pub use git::{GitManager, RepositoryStatus, FileStatus, FileChangeType, DetailedRepositoryStatus, RepositoryDiff};
+pub use hash::{generate_hash, generate_extended_hash, verify_hash, validate_hash_format};
+pub use models::{MirrorConfig, Repository};
+pub use security::{PathValidator, SecurityPolicy};
+pub use ssh::SshManager;
+pub use url_parser::{extract_path_from_url, validate_git_url, extract_hostname};
 
-// Re-export dependencies that are part of our public API
-pub use uuid;
+/// Crate version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Creates a new mirror configuration at the default location
-///
-/// This is a convenience function that calls `MirrorConfig::init()`.
-///
-/// # Returns
-///
-/// A `Result` containing the new configuration or an error
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use mirror_sdk;
-///
-/// let config = mirror_sdk::init().unwrap();
-/// ```
-pub fn init() -> Result<MirrorConfig> {
-    MirrorConfig::init()
-}
+/// Default configuration file name
+pub const DEFAULT_CONFIG_FILE: &str = "mirror.toml";
 
-/// Creates a new mirror configuration at the specified path
-///
-/// This is a convenience function that calls `MirrorConfig::init_at()`.
-///
-/// # Arguments
-///
-/// * `path` - Path to create the mirror.toml file
-///
-/// # Returns
-///
-/// A `Result` containing the new configuration or an error
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use mirror_sdk;
-/// use std::path::Path;
-///
-/// let config = mirror_sdk::init_at(Path::new("custom/path/mirror.toml")).unwrap();
-/// ```
-pub fn init_at<P: AsRef<std::path::Path>>(path: P) -> Result<MirrorConfig> {
-    MirrorConfig::init_at(path)
-}
+/// Default branch name for repositories
+pub const DEFAULT_BRANCH: &str = "main";
 
-/// Loads a mirror configuration from the default location or environment variable
-///
-/// This is a convenience function that calls `MirrorConfig::load()`.
-///
-/// # Returns
-///
-/// A `Result` containing the loaded configuration or an error
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use mirror_sdk;
-///
-/// let config = mirror_sdk::load().unwrap();
-/// ```
-pub fn load() -> Result<MirrorConfig> {
-    MirrorConfig::load()
-}
+/// Minimum hash length for unique identification
+pub const MIN_HASH_LENGTH: usize = 4;
 
-/// Loads a mirror configuration from the specified path
-///
-/// This is a convenience function that calls `MirrorConfig::load_from()`.
-///
-/// # Arguments
-///
-/// * `path` - Path to the mirror.toml file
-///
-/// # Returns
-///
-/// A `Result` containing the loaded configuration or an error
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use mirror_sdk;
-/// use std::path::Path;
-///
-/// let config = mirror_sdk::load_from(Path::new("custom/path/mirror.toml")).unwrap();
-/// ```
-pub fn load_from<P: AsRef<std::path::Path>>(path: P) -> Result<MirrorConfig> {
-    MirrorConfig::load_from(path)
+/// Maximum hash length (full SHA256 hex)
+pub const MAX_HASH_LENGTH: usize = 64;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_workflow() {
+        // Test the basic workflow described in the documentation
+        let repo = Repository::from_url("git@github.com:org/repo.git".to_string()).unwrap();
+        
+        let mut config = MirrorConfig::new();
+        config.add_repository(repo.clone()).unwrap();
+        
+        assert_eq!(config.len(), 1);
+        assert_eq!(config.repositories()[0], repo);
+        
+        let hash = repo.compute_hash();
+        assert_eq!(hash.len(), 8);
+        
+        let found = config.find_by_hash(&hash[..4]);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), &repo);
+    }
+    
+    #[test]
+    fn test_url_parsing() {
+        // Test SSH format
+        let ssh_repo = Repository::from_url("git@github.com:org/repo.git".to_string()).unwrap();
+        assert_eq!(ssh_repo.path, "org/repo");
+        assert_eq!(ssh_repo.branch, DEFAULT_BRANCH);
+        assert_eq!(ssh_repo.skip_push, false);
+        
+        // Test HTTPS format
+        let https_repo = Repository::from_url("https://github.com/org/repo.git".to_string()).unwrap();
+        assert_eq!(https_repo.path, "org/repo");
+        assert_eq!(https_repo.branch, DEFAULT_BRANCH);
+        assert_eq!(https_repo.skip_push, false);
+    }
+    
+    #[test]
+    fn test_hash_uniqueness() {
+        let repo1 = Repository::from_url("git@github.com:org/repo1.git".to_string()).unwrap();
+        let repo2 = Repository::from_url("git@github.com:org/repo2.git".to_string()).unwrap();
+        
+        let hash1 = repo1.compute_hash();
+        let hash2 = repo2.compute_hash();
+        
+        assert_ne!(hash1, hash2);
+        assert!(verify_hash(&repo1, &hash1));
+        assert!(!verify_hash(&repo1, &hash2));
+    }
+    
+    #[test]
+    fn test_validation() {
+        let valid_repo = Repository::new(
+            "git@github.com:org/repo.git".to_string(),
+            "org/repo".to_string(),
+            Some("main".to_string()),
+            Some(false),
+        );
+        assert!(valid_repo.validate().is_ok());
+        
+        let invalid_repo = Repository::new(
+            "".to_string(), // Invalid empty git URL
+            "org/repo".to_string(),
+            Some("main".to_string()),
+            Some(false),
+        );
+        assert!(invalid_repo.validate().is_err());
+    }
 }

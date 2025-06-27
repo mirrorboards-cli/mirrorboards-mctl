@@ -1,229 +1,452 @@
-//! Status command implementation
-//!
-//! This module implements the functionality of the status command,
-//! which shows the git status of all repositories defined in a mirror.toml file.
+use anyhow::{Result, Context};
+use mirror_sdk::{ConfigManager, GitManager, RepositoryStatus, DetailedRepositoryStatus, FileChangeType};
+use tabled::{Tabled, Table, settings::Color};
+use super::{Command, print_error, print_info, print_warning, print_verbose};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::BTreeMap;
+use colored::Colorize;
 
-use std::path::{Path, PathBuf};
-use git2::{Repository as GitRepository, Status as GitStatus, StatusOptions};
-use mirror_sdk::MirrorConfig;
-use crate::cli::status::StatusArgs;
-use crate::output::OutputFormatter;
-use crate::utils::resolve_relative_path;
-use super::{CommandResult, CommandError};
-use colored::*;
+pub struct StatusCommand {
+    pub detailed: bool,
+}
 
-/// Execute the status command
-pub fn execute(args: StatusArgs, formatter: &mut dyn OutputFormatter, config_path: Option<String>) -> CommandResult<()> {
-    // Load the mirror.toml file
-    let config_path_str = config_path.clone().unwrap_or_else(|| "mirror.toml".to_string());
-    let config_path_buf = PathBuf::from(&config_path_str);
-    
-    // Load the mirror.toml file
-    let config = if let Some(path) = config_path {
-        formatter.info(&format!("Loading mirror.toml from {}", path));
-        MirrorConfig::load_from(path)
-    } else {
-        formatter.info("Loading mirror.toml from default location");
-        MirrorConfig::load()
-    }?;
+#[derive(Tabled)]
+struct RepositoryStatusRow {
+    #[tabled(rename = "Hash")]
+    hash: String,
+    #[tabled(rename = "Path")]
+    path: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Branch")]
+    branch: String,
+    #[tabled(rename = "Git URL")]
+    git_url: String,
+}
 
-    // Get repositories, optionally filtered by tag
-    let repositories = if let Some(tag) = &args.tag {
-        formatter.info(&format!("Filtering repositories by tag: {}", tag));
-        config.get_repositories_by_tag(tag)
-    } else {
-        formatter.info("Processing all repositories");
-        config.get_repositories().iter().collect()
-    };
+#[derive(Tabled)]
+struct DetailedRepositoryStatusRow {
+    #[tabled(rename = "Hash")]
+    hash: String,
+    #[tabled(rename = "Path")]
+    path: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Branch")]
+    branch: String,
+    #[tabled(rename = "Git URL")]
+    git_url: String,
+    #[tabled(rename = "Skip Push")]
+    skip_push: String,
+}
 
-    if repositories.is_empty() {
-        formatter.warning("No repositories found");
-        return Ok(());
-    }
-
-    formatter.info(&format!("Found {} repositories to check", repositories.len()));
-
-    // Process each repository
-    let mut has_changes = false;
-
-    for repo in repositories {
-        let repo_path_str = &repo.path;
-        let repo_path = resolve_relative_path(&config_path_buf, repo_path_str);
+impl Command for StatusCommand {
+    fn execute(&self, config_manager: &ConfigManager, verbose: bool) -> Result<()> {
+        print_verbose("Loading repository configuration", verbose);
         
-        // Check if repository exists
-        if !repo_path.exists() {
-            formatter.warning(&format!("Repository not found at {}", repo_path.display()));
-            continue;
+        if !config_manager.exists() {
+            print_warning("Configuration file does not exist. Run 'mctl init' to create one.");
+            return Ok(());
         }
-
-        // Open the git repository
-        match GitRepository::open(&repo_path) {
-            Ok(git_repo) => {
-                // Configure status options to exclude ignored files
-                let mut status_opts = StatusOptions::new();
-                status_opts.include_ignored(false);
-                status_opts.include_untracked(true);
-                status_opts.exclude_submodules(false);
-                
-                // Get the repository status
-                let statuses = git_repo.statuses(Some(&mut status_opts)).map_err(|e| {
-                    CommandError::Other(format!("Failed to get status for {}: {}", repo_path.display(), e))
-                })?;
-
-                if statuses.is_empty() {
-                    // Skip displaying clean repositories unless show_clean flag is set
-                    if args.show_clean {
-                        // Get the repository name from the path
-                        let repo_name = repo_path.file_name()
-                            .map(|name| name.to_string_lossy().to_string())
-                            .unwrap_or_else(|| repo_path_str.clone());
-                        
-                        // Display clean repository with a modern, clean format
-                        formatter.success(&format!("{} {} {}",
-                            "→".bold(),
-                            repo_name.bold().green(),
-                            "(clean)".green()));
-                        
-                        // Add a separator line between repositories for better readability
-                        formatter.info("");
-                    }
-                    continue;
-                } else {
-                    has_changes = true;
+        
+        let repositories = config_manager.list_repositories()
+            .context("Failed to load repositories from configuration")?;
+        
+        if repositories.is_empty() {
+            print_info("No repositories configured.");
+            if verbose {
+                println!("Add repositories with: mctl add <git-url>");
+            }
+            return Ok(());
+        }
+        
+        // Filter out repositories with skip_push = true
+        let active_repositories: Vec<_> = repositories.iter()
+            .filter(|repo| !repo.skip_push)
+            .collect();
+        
+        if active_repositories.is_empty() {
+            print_info("No active repositories found (all repositories have skip_push = true).");
+            if verbose {
+                println!("Total repositories configured: {}", repositories.len());
+                println!("Use 'mctl list' to see all repositories including those with skip_push = true");
+            }
+            return Ok(());
+        }
+        
+        print_verbose(&format!("Found {} active repositories (filtered {} with skip_push = true)", 
+            active_repositories.len(), repositories.len() - active_repositories.len()), verbose);
+        
+        // Initialize Git manager
+        let git_manager = GitManager::new_with_verbose(verbose)
+            .context("Failed to initialize Git manager")?;
+        
+        // Setup progress tracking if multiple repos
+        let multi_progress = if active_repositories.len() > 1 {
+            let mp = MultiProgress::new();
+            let main_progress = mp.add(ProgressBar::new(active_repositories.len() as u64));
+            main_progress.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}/{len:3} {msg}")
+                    .unwrap()
+                    .progress_chars("#>-")
+            );
+            main_progress.set_message("Checking repository status");
+            Some((mp, main_progress))
+        } else {
+            None
+        };
+        
+        // Collect status for each repository
+        let mut status_rows = Vec::new();
+        let mut detailed_status_rows = Vec::new();
+        let mut repo_file_changes: BTreeMap<String, DetailedRepositoryStatus> = BTreeMap::new();
+        let error_count = Arc::new(AtomicUsize::new(0));
+        
+        for (index, repo) in active_repositories.iter().enumerate() {
+            let target_path = PathBuf::from(&repo.path);
+            
+            print_verbose(&format!("Checking repository {}/{}: {} -> {}",
+                index + 1, active_repositories.len(), repo.git, target_path.display()), verbose);
+            
+            match git_manager.get_detailed_repository_status(&target_path) {
+                Ok(detailed_status) => {
+                    let status_text = format_repository_status_plain(&detailed_status.status);
+                    let hash = repo.compute_hash();
                     
-                    // Get the repository name from the path
-                    let repo_name = repo_path.file_name()
-                        .map(|name| name.to_string_lossy().to_string())
-                        .unwrap_or_else(|| repo_path_str.clone());
-                    // Display repository name with a more modern, clean format
-                    formatter.warning(&format!("{} {}", "→".bold(), repo_name.bold().yellow()));
-                    
-                    
-                    // Collect changed and untracked files separately
-                    let mut changed_files = Vec::new();
-                    let mut untracked_files = Vec::new();
-                    
-                    for entry in statuses.iter() {
-                        let status = entry.status();
-                        let path = entry.path().unwrap_or("unknown");
-                        
-                        // Make the path relative to the mirror.toml file location
-                        let full_path = repo_path.join(path);
-                        let relative_path = make_path_relative_to_config(&config_path_buf, &full_path);
-                        
-                        // Format the status with color
-                        let status_str = format_git_status(status);
-                        
-                        // Determine file type and add to appropriate collection
-                        if status.is_wt_new() {
-                            untracked_files.push((status, relative_path));
-                        } else {
-                            changed_files.push((status, relative_path));
-                        }
-                    }
-                    
-                    // Display changed files
-                    if !changed_files.is_empty() {
-                        formatter.info("  Changed files:");
-                        for (status, path) in changed_files {
-                            let colored_path = color_path_by_status(status, &path);
-                            formatter.info(&format!("    {}", colored_path));
-                        }
+                    // Store file changes for repositories that have them
+                    if !detailed_status.files.is_empty() {
+                        repo_file_changes.insert(repo.path.clone(), detailed_status.clone());
                     }
                     
-                    // Display untracked files
-                    if !untracked_files.is_empty() {
-                        formatter.info("  Untracked files:");
-                        for (status, path) in untracked_files {
-                            let colored_path = color_path_by_status(status, &path);
-                            formatter.info(&format!("    {}", colored_path));
-                        }
-                    }
+                    // Add to regular status table
+                    status_rows.push(RepositoryStatusRow {
+                        hash: hash.clone(),
+                        path: repo.path.clone(),
+                        status: status_text.clone(),
+                        branch: repo.branch.clone(),
+                        git_url: repo.git.clone(),
+                    });
                     
-                    // Add a separator line between repositories for better readability
-                    formatter.info("");
+                    // Add to detailed status table
+                    detailed_status_rows.push(DetailedRepositoryStatusRow {
+                        hash,
+                        path: repo.path.clone(),
+                        status: status_text,
+                        branch: repo.branch.clone(),
+                        git_url: repo.git.clone(),
+                        skip_push: if repo.skip_push { "✓".to_string() } else { "✗".to_string() },
+                    });
+                    
+                    if verbose {
+                        println!("  ✓ {}: {}", repo.path, format_repository_status_colored(&detailed_status.status));
+                    }
                 }
-            },
-            Err(e) => {
-                formatter.error(&format!("Failed to open repository at {}: {}", repo_path.display(), e));
-                continue;
+                Err(e) => {
+                    error_count.fetch_add(1, Ordering::SeqCst);
+                    let error_status = "Error".to_string();
+                    let hash = repo.compute_hash();
+                    
+                    // Add error entries to tables
+                    status_rows.push(RepositoryStatusRow {
+                        hash: hash.clone(),
+                        path: repo.path.clone(),
+                        status: error_status.clone(),
+                        branch: repo.branch.clone(),
+                        git_url: repo.git.clone(),
+                    });
+                    
+                    detailed_status_rows.push(DetailedRepositoryStatusRow {
+                        hash,
+                        path: repo.path.clone(),
+                        status: error_status,
+                        branch: repo.branch.clone(),
+                        git_url: repo.git.clone(),
+                        skip_push: if repo.skip_push { "✓".to_string() } else { "✗".to_string() },
+                    });
+                    
+                    print_error(&format!("Failed to get status for {}: {}", repo.path, e));
+                }
+            }
+            
+            // Update progress
+            if let Some((_, ref main_progress)) = multi_progress {
+                main_progress.inc(1);
+                main_progress.set_message(format!("Checked {}/{}", index + 1, active_repositories.len()));
             }
         }
-    }
-
-    if !has_changes {
-        formatter.success("All repositories are clean");
-    }
-
-    Ok(())
-}
-
-/// Format git status as a colored string (for internal use)
-fn format_git_status(status: GitStatus) -> String {
-    if status.is_index_new() {
-        "A".green().bold().to_string()
-    } else if status.is_index_modified() {
-        "M".blue().bold().to_string()
-    } else if status.is_index_deleted() {
-        "D".red().bold().to_string()
-    } else if status.is_index_renamed() {
-        "R".cyan().bold().to_string()
-    } else if status.is_index_typechange() {
-        "T".magenta().bold().to_string()
-    } else if status.is_wt_new() {
-        "??".bright_green().bold().to_string()
-    } else if status.is_wt_modified() {
-        "M".bright_blue().bold().to_string()
-    } else if status.is_wt_deleted() {
-        "D".bright_red().bold().to_string()
-    } else if status.is_wt_renamed() {
-        "R".bright_cyan().bold().to_string()
-    } else if status.is_wt_typechange() {
-        "T".bright_magenta().bold().to_string()
-    } else if status.is_conflicted() {
-        "!!".bright_yellow().bold().to_string()
-    } else {
-        " ".to_string()
-    }
-}
-
-/// Color the file path based on its git status
-fn color_path_by_status(status: GitStatus, path: &str) -> String {
-    if status.is_index_new() {
-        path.green().to_string()
-    } else if status.is_index_modified() {
-        path.blue().to_string()
-    } else if status.is_index_deleted() {
-        path.red().to_string()
-    } else if status.is_index_renamed() {
-        path.cyan().to_string()
-    } else if status.is_index_typechange() {
-        path.magenta().to_string()
-    } else if status.is_wt_new() {
-        path.bright_green().to_string()
-    } else if status.is_wt_modified() {
-        path.bright_blue().to_string()
-    } else if status.is_wt_deleted() {
-        path.bright_red().to_string()
-    } else if status.is_wt_renamed() {
-        path.bright_cyan().to_string()
-    } else if status.is_wt_typechange() {
-        path.bright_magenta().to_string()
-    } else if status.is_conflicted() {
-        path.bright_yellow().to_string()
-    } else {
-        path.white().to_string()
-    }
-}
-
-/// Make a path relative to the mirror.toml file location
-fn make_path_relative_to_config(config_path: &Path, file_path: &Path) -> String {
-    if let Some(config_dir) = config_path.parent() {
-        if let Ok(relative) = file_path.strip_prefix(config_dir) {
-            return relative.to_string_lossy().to_string();
+        
+        // Finish progress
+        if let Some((mp, main_progress)) = multi_progress {
+            main_progress.finish_with_message("Status check complete");
+            mp.clear().unwrap_or(());
         }
+        
+        // Display results
+        println!();
+        if self.detailed {
+            let mut table = Table::new(&detailed_status_rows);
+            apply_status_colors_detailed(&mut table, &detailed_status_rows);
+            println!("{}", table);
+        } else {
+            let mut table = Table::new(&status_rows);
+            apply_status_colors_regular(&mut table, &status_rows);
+            println!("{}", table);
+        }
+        
+        // Display file-level changes for repositories that have them
+        if !repo_file_changes.is_empty() {
+            println!();
+            print_info("File Changes:");
+            
+            for (repo_path, detailed_status) in &repo_file_changes {
+                println!();
+                println!("Repository: {}", repo_path);
+                println!("Status: {}", format_repository_status_colored(&detailed_status.status));
+                println!("Files:");
+                
+                // Group files by their status
+                let mut modified_files = Vec::new();
+                let mut new_files = Vec::new();
+                let mut deleted_files = Vec::new();
+                let mut staged_files = Vec::new();
+                let mut renamed_files = Vec::new();
+                
+                for file in &detailed_status.files {
+                    // Check working directory changes first
+                    match file.working_dir_status {
+                        FileChangeType::New => new_files.push(&file.path),
+                        FileChangeType::Modified => modified_files.push(&file.path),
+                        FileChangeType::Deleted => deleted_files.push(&file.path),
+                        FileChangeType::Renamed => renamed_files.push(&file.path),
+                        _ => {}
+                    }
+                    
+                    // Check index/staged changes
+                    match file.index_status {
+                        FileChangeType::New | FileChangeType::Modified | FileChangeType::Deleted | FileChangeType::Renamed => {
+                            staged_files.push(&file.path);
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // Display grouped files with colors
+                if !staged_files.is_empty() {
+                    println!("  {}:", "Staged".cyan().bold());
+                    for file in staged_files {
+                        println!("    - {}", file.cyan());
+                    }
+                }
+                
+                if !modified_files.is_empty() {
+                    println!("  {}:", "Modified".yellow().bold());
+                    for file in modified_files {
+                        println!("    - {}", file.yellow());
+                    }
+                }
+                
+                if !new_files.is_empty() {
+                    println!("  {}:", "Untracked".green().bold());
+                    for file in new_files {
+                        println!("    - {}", file.green());
+                    }
+                }
+                
+                if !deleted_files.is_empty() {
+                    println!("  {}:", "Deleted".red().bold());
+                    for file in deleted_files {
+                        println!("    - {}", file.red());
+                    }
+                }
+                
+                if !renamed_files.is_empty() {
+                    println!("  {}:", "Renamed".magenta().bold());
+                    for file in renamed_files {
+                        println!("    - {}", file.magenta());
+                    }
+                }
+            }
+        }
+        
+        // Print summary
+        let errors = error_count.load(Ordering::SeqCst);
+        println!();
+        print_info("Status Summary:");
+        println!("  • Active repositories checked: {}", active_repositories.len());
+        if repositories.len() > active_repositories.len() {
+            println!("  • Repositories skipped (skip_push = true): {}", repositories.len() - active_repositories.len());
+        }
+        if !repo_file_changes.is_empty() {
+            println!("  • Repositories with file changes: {}", repo_file_changes.len());
+        }
+        if errors > 0 {
+            println!("  • Repositories with errors: {}", errors);
+        }
+        
+        if verbose {
+            println!();
+            println!("Use 'mctl show <hash>' for detailed information about a repository");
+            println!("Use 'mctl sync --pull' to update repositories that need updates");
+        }
+        
+        if errors > 0 {
+            print_warning("Some repositories could not be checked. See error messages above.");
+        }
+        
+        Ok(())
+    }
+}
+
+/// Format RepositoryStatus enum to user-friendly plain text string
+fn format_repository_status_plain(status: &RepositoryStatus) -> String {
+    match status {
+        RepositoryStatus::Missing => "Missing".to_string(),
+        RepositoryStatus::NotGitRepository => "Not Git Repo".to_string(),
+        RepositoryStatus::UpToDate => "Up to Date".to_string(),
+        RepositoryStatus::NeedsUpdate => "Needs Update".to_string(),
+        RepositoryStatus::HasConflicts => "Has Conflicts".to_string(),
+    }
+}
+
+/// Format RepositoryStatus enum to user-friendly colored string (for non-table output)
+fn format_repository_status_colored(status: &RepositoryStatus) -> String {
+    match status {
+        RepositoryStatus::Missing => "Missing".bright_black().to_string(),
+        RepositoryStatus::NotGitRepository => "Not Git Repo".blue().to_string(),
+        RepositoryStatus::UpToDate => "Up to Date".green().to_string(),
+        RepositoryStatus::NeedsUpdate => "Needs Update".yellow().to_string(),
+        RepositoryStatus::HasConflicts => "Has Conflicts".red().to_string(),
+    }
+}
+
+/// Apply colors to status column in table based on repository status values
+fn apply_status_colors_regular(table: &mut Table, rows: &[RepositoryStatusRow]) {
+    use tabled::settings::object::Cell;
+    
+    for (row_index, row) in rows.iter().enumerate() {
+        let status_color = get_status_color(&row.status);
+        
+        // Apply color to the Status column (index 2) for this row
+        // +1 because row 0 is the header
+        table.modify(
+            Cell::new(row_index + 1, 2),
+            status_color
+        );
+    }
+}
+
+/// Apply colors to status column in detailed table based on repository status values
+fn apply_status_colors_detailed(table: &mut Table, rows: &[DetailedRepositoryStatusRow]) {
+    use tabled::settings::object::Cell;
+    
+    for (row_index, row) in rows.iter().enumerate() {
+        let status_color = get_status_color(&row.status);
+        
+        // Apply color to the Status column (index 2) for this row
+        // +1 because row 0 is the header
+        table.modify(
+            Cell::new(row_index + 1, 2),
+            status_color
+        );
+    }
+}
+
+/// Get color for status text
+fn get_status_color(status: &str) -> Color {
+    match status {
+        "Missing" => Color::FG_BRIGHT_BLACK,
+        "Not Git Repo" => Color::FG_BLUE,
+        "Up to Date" => Color::FG_GREEN,
+        "Needs Update" => Color::FG_YELLOW,
+        "Has Conflicts" => Color::FG_RED,
+        _ => Color::FG_WHITE, // Default for errors or unknown status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use mirror_sdk::Repository;
+
+    fn create_test_repository(git: &str, path: &str, skip_push: bool) -> Repository {
+        Repository::new(
+            git.to_string(),
+            path.to_string(),
+            Some("main".to_string()),
+            Some(skip_push),
+        )
+    }
+
+    #[test]
+    fn test_status_empty_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Create empty config
+        config_manager.create_empty().unwrap();
+        
+        let status_command = StatusCommand { detailed: false };
+        
+        // Should not error on empty config
+        status_command.execute(&config_manager, false).unwrap();
     }
     
-    // Fallback to the full path if we can't make it relative
-    file_path.to_string_lossy().to_string()
+    #[test]
+    fn test_status_nonexistent_config() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        
+        // Delete the temp file so config doesn't exist
+        drop(temp_file);
+        
+        let config_manager = ConfigManager::new(&temp_path);
+        let status_command = StatusCommand { detailed: false };
+        
+        // Should not error on missing config
+        status_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_status_with_skip_push_repositories() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repositories - one with skip_push = true
+        let repo1 = create_test_repository("git@github.com:org/repo1.git", "org/repo1", false);
+        let repo2 = create_test_repository("git@github.com:org/repo2.git", "org/repo2", true);
+        
+        config_manager.add_repository(repo1).unwrap();
+        config_manager.add_repository(repo2).unwrap();
+        
+        let status_command = StatusCommand { detailed: false };
+        status_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_status_detailed_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let config_manager = ConfigManager::new(temp_file.path());
+        
+        // Add test repository
+        let repo = create_test_repository("git@github.com:org/repo.git", "org/repo", false);
+        config_manager.add_repository(repo).unwrap();
+        
+        let status_command = StatusCommand { detailed: true };
+        status_command.execute(&config_manager, false).unwrap();
+    }
+    
+    #[test]
+    fn test_format_repository_status() {
+        // Test that the colored function produces the expected text (colors will be stripped when compared)
+        assert!(format_repository_status_colored(&RepositoryStatus::Missing).contains("Missing"));
+        assert!(format_repository_status_colored(&RepositoryStatus::NotGitRepository).contains("Not Git Repo"));
+        assert!(format_repository_status_colored(&RepositoryStatus::UpToDate).contains("Up to Date"));
+        assert!(format_repository_status_colored(&RepositoryStatus::NeedsUpdate).contains("Needs Update"));
+        assert!(format_repository_status_colored(&RepositoryStatus::HasConflicts).contains("Has Conflicts"));
+    }
 }
