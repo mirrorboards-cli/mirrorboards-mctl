@@ -1,0 +1,20 @@
+[package]
+name = "mctl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI tool for managing multi-repository Git workspaces"
+
+[[bin]]
+name = "mctl"
+path = "src/main.rs"
+
+[dependencies]
+mirror-sdk.workspace = true
+clap.workspace = true
+colored.workspace = true
+indicatif.workspace = true
+tabled.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
