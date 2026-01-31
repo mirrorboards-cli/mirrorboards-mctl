@@ -1,25 +1,15 @@
 //! Status command - show status of repositories.
 
 use crate::cli::commands::print_error;
+use crate::cli::table::{render_table, CellStyle, TableConfig, TableRow};
 use crate::core::config::MirrorConfig;
 use crate::core::repository::Repository;
 use crate::git::GitClient;
 use anyhow::Result;
 use colored::Colorize;
+use ratatui::layout::Constraint;
+use rayon::prelude::*;
 use std::path::Path;
-use tabled::{settings::Style, Table, Tabled};
-
-#[derive(Tabled)]
-struct StatusRow {
-    #[tabled(rename = "Path")]
-    path: String,
-    #[tabled(rename = "Branch")]
-    branch: String,
-    #[tabled(rename = "Status")]
-    status: String,
-    #[tabled(rename = "Sync")]
-    sync: String,
-}
 
 pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> Result<()> {
     let config_file = Path::new(config_path);
@@ -50,98 +40,110 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
         return Ok(());
     }
 
-    // Print header
-    if let Some(ws) = &workspace {
-        println!(
-            "{} {} ({} repositories)",
-            "Status for workspace:".bold(),
-            ws.cyan(),
-            repos.len()
-        );
-    } else {
-        println!(
-            "{} ({} repositories)",
-            "Status for all repositories".bold(),
-            repos.len()
-        );
-    }
-    println!();
-
-    let git = GitClient::new();
-
     if detailed {
+        let git = GitClient::new();
+
+        // Print header for detailed view
+        if let Some(ws) = &workspace {
+            println!(
+                "{} {} ({} repositories)",
+                "Status for workspace:".bold(),
+                ws.cyan(),
+                repos.len()
+            );
+        } else {
+            println!(
+                "{} ({} repositories)",
+                "Status for all repositories".bold(),
+                repos.len()
+            );
+        }
+        println!();
+
         // Detailed view - show each repo separately
         for repo in repos {
             print_detailed_status(&git, repo)?;
         }
     } else {
-        // Table view
-        let mut rows = Vec::new();
+        // Build title
+        let title = if let Some(ws) = &workspace {
+            format!(" Status: {} ({} repositories) ", ws, repos.len())
+        } else {
+            format!(" Repository Status ({}) ", repos.len())
+        };
 
-        for repo in repos {
-            let local_path = Path::new(&repo.path);
+        // Build table config
+        let table_config = TableConfig::new(vec!["Path", "Branch", "Status", "Sync"])
+            .with_title(title)
+            .with_widths(vec![
+                Constraint::Percentage(35),
+                Constraint::Percentage(20),
+                Constraint::Percentage(25),
+                Constraint::Percentage(20),
+            ]);
 
-            if !local_path.exists() {
-                rows.push(StatusRow {
-                    path: repo.path.clone(),
-                    branch: "-".to_string(),
-                    status: "Not cloned".yellow().to_string(),
-                    sync: "-".to_string(),
-                });
-                continue;
-            }
+        // Build rows concurrently
+        let rows: Vec<TableRow> = repos
+            .par_iter()
+            .map(|repo| {
+                let git = GitClient::new();
+                let local_path = Path::new(&repo.path);
 
-            if !git.is_git_repository(local_path) {
-                rows.push(StatusRow {
-                    path: repo.path.clone(),
-                    branch: "-".to_string(),
-                    status: "Not a git repo".red().to_string(),
-                    sync: "-".to_string(),
-                });
-                continue;
-            }
-
-            match git.status(local_path) {
-                Ok(status) => {
-                    let status_str = if status.is_clean() {
-                        "Clean".green().to_string()
-                    } else {
-                        status.summary().yellow().to_string()
-                    };
-
-                    let sync_str = if status.branch.is_synced() {
-                        "Up to date".green().to_string()
-                    } else if status.branch.upstream.is_some() {
-                        format!(
-                            "+{} -{}",
-                            status.branch.ahead, status.branch.behind
-                        )
-                        .yellow()
-                        .to_string()
-                    } else {
-                        "No upstream".dimmed().to_string()
-                    };
-
-                    rows.push(StatusRow {
-                        path: repo.path.clone(),
-                        branch: status.branch.name,
-                        status: status_str,
-                        sync: sync_str,
-                    });
+                if !local_path.exists() {
+                    return TableRow::new(vec![
+                        CellStyle::highlight(&repo.path),
+                        CellStyle::dimmed("-"),
+                        CellStyle::warning("Not cloned"),
+                        CellStyle::dimmed("-"),
+                    ]);
                 }
-                Err(e) => {
-                    rows.push(StatusRow {
-                        path: repo.path.clone(),
-                        branch: "-".to_string(),
-                        status: format!("Error: {}", e).red().to_string(),
-                        sync: "-".to_string(),
-                    });
+
+                if !git.is_git_repository(local_path) {
+                    return TableRow::new(vec![
+                        CellStyle::highlight(&repo.path),
+                        CellStyle::dimmed("-"),
+                        CellStyle::error("Not a git repo"),
+                        CellStyle::dimmed("-"),
+                    ]);
                 }
-            }
+
+                match git.status(local_path) {
+                    Ok(status) => {
+                        let status_cell = if status.is_clean() {
+                            CellStyle::success("Clean")
+                        } else {
+                            CellStyle::warning(status.summary())
+                        };
+
+                        let sync_cell = if status.branch.is_synced() {
+                            CellStyle::success("Up to date")
+                        } else if status.branch.upstream.is_some() {
+                            CellStyle::warning(format!("+{} -{}", status.branch.ahead, status.branch.behind))
+                        } else {
+                            CellStyle::dimmed("No upstream")
+                        };
+
+                        TableRow::new(vec![
+                            CellStyle::highlight(&repo.path),
+                            CellStyle::normal(&status.branch.name),
+                            status_cell,
+                            sync_cell,
+                        ])
+                    }
+                    Err(e) => TableRow::new(vec![
+                        CellStyle::highlight(&repo.path),
+                        CellStyle::dimmed("-"),
+                        CellStyle::error(format!("Error: {}", e)),
+                        CellStyle::dimmed("-"),
+                    ]),
+                }
+            })
+            .collect();
+
+        // Render table
+        if let Err(e) = render_table(&table_config, &rows) {
+            eprintln!("Error rendering table: {}", e);
         }
-
-        let table = Table::new(rows).with(Style::rounded()).to_string();
-        println!("{}", table);
     }
 
     Ok(())

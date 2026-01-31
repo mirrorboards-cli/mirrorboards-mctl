@@ -202,6 +202,29 @@ impl GitClient {
         })
     }
 
+    /// Get repository status (fast version - single git call, no HEAD rev).
+    /// Use this for table display where HEAD hash is not needed.
+    pub fn status_fast(&self, repo_path: &Path) -> GitResult<RepositoryStatus> {
+        // Skip ensure_git_repo - caller should check this beforehand
+        let cmd = self.apply_config(GitCommand::status(repo_path));
+        let output = self.run_command(cmd)?;
+        let (branch_info, files) = parse_status_porcelain_v2(&output);
+
+        let branch = branch_info.unwrap_or_else(|| crate::git::status::BranchInfo {
+            name: "HEAD".to_string(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+        });
+
+        Ok(RepositoryStatus {
+            branch,
+            files,
+            head_short: String::new(),
+            head_full: String::new(),
+        })
+    }
+
     /// Get current branch name.
     pub fn get_current_branch(&self, repo_path: &Path) -> GitResult<String> {
         self.ensure_git_repo(repo_path)?;
