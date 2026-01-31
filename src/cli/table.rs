@@ -65,6 +65,21 @@ impl TableRow {
     pub fn new(cells: Vec<CellStyle>) -> Self {
         Self { cells }
     }
+
+    /// Calculate the height needed for this row based on newlines in cells
+    fn height(&self) -> u16 {
+        self.cells
+            .iter()
+            .map(|c| {
+                let text = match c {
+                    CellStyle::Normal(s) | CellStyle::Success(s) | CellStyle::Warning(s)
+                    | CellStyle::Error(s) | CellStyle::Dimmed(s) | CellStyle::Highlight(s) => s,
+                };
+                text.lines().count().max(1) as u16
+            })
+            .max()
+            .unwrap_or(1)
+    }
 }
 
 /// Configuration for rendering a table
@@ -111,12 +126,12 @@ pub fn render_table(config: &TableConfig, rows: &[TableRow]) -> io::Result<()> {
         .collect();
     let header = Row::new(header_cells).height(1);
 
-    // Build data rows
+    // Build data rows with dynamic height
     let data_rows: Vec<Row> = rows
         .iter()
         .map(|row| {
             let cells: Vec<Cell> = row.cells.iter().map(|c| c.to_cell()).collect();
-            Row::new(cells).height(1)
+            Row::new(cells).height(row.height())
         })
         .collect();
 
@@ -144,7 +159,8 @@ pub fn render_table(config: &TableConfig, rows: &[TableRow]) -> io::Result<()> {
     };
 
     // Render to a buffer and print - use full terminal width with minimum 80
-    let height = rows.len() as u16 + 4; // rows + header + borders
+    let total_row_height: u16 = rows.iter().map(|r| r.height()).sum();
+    let height = total_row_height + 3; // rows + header (1) + borders (2)
     let width = term_width.max(80);
 
     // Create a buffer to render into

@@ -91,79 +91,118 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             print_detailed_status_cached(repo, status.as_ref())?;
         }
     } else {
-        // Build title
-        let title = if let Some(ws) = &workspace {
-            format!(" Status: {} ({} repositories) ", ws, repos.len())
-        } else {
-            format!(" Repository Status ({}) ", repos.len())
-        };
-
-        // Build table config
-        let table_config = TableConfig::new(vec!["Path", "Branch", "Status", "Sync"])
-            .with_title(title)
-            .with_widths(vec![
-                Constraint::Percentage(35),
-                Constraint::Percentage(20),
-                Constraint::Percentage(25),
-                Constraint::Percentage(20),
-            ]);
-
-        // Build rows concurrently using fast status (single git call per repo)
-        let rows: Vec<TableRow> = repos
+        // Collect statuses concurrently
+        let statuses: Vec<_> = repos
             .par_iter()
             .map(|repo| {
                 let local_path = Path::new(&repo.path);
-
                 if !local_path.exists() {
-                    return TableRow::new(vec![
-                        CellStyle::highlight(&repo.path),
-                        CellStyle::dimmed("-"),
-                        CellStyle::warning("Not cloned"),
-                        CellStyle::dimmed("-"),
-                    ]);
+                    return (repo, None, Some("Not cloned"));
                 }
-
-                // Check for .git directory directly (faster than git command)
                 if !local_path.join(".git").exists() {
-                    return TableRow::new(vec![
-                        CellStyle::highlight(&repo.path),
-                        CellStyle::dimmed("-"),
-                        CellStyle::error("Not a git repo"),
-                        CellStyle::dimmed("-"),
-                    ]);
+                    return (repo, None, Some("Not a git repo"));
                 }
-
                 let git = GitClient::new();
                 match git.status_fast(local_path) {
-                    Ok(status) => {
-                        let status_cell = if status.is_clean() {
-                            CellStyle::success("Clean")
-                        } else {
-                            CellStyle::warning(status.summary())
-                        };
+                    Ok(status) => (repo, Some(status), None),
+                    Err(_) => (repo, None, Some("Error")),
+                }
+            })
+            .collect();
 
-                        let sync_cell = if status.branch.is_synced() {
-                            CellStyle::success("Up to date")
-                        } else if status.branch.upstream.is_some() {
-                            CellStyle::warning(format!("+{} -{}", status.branch.ahead, status.branch.behind))
-                        } else {
-                            CellStyle::dimmed("No upstream")
-                        };
+        // Filter to dirty repos only (unless --all)
+        let filtered: Vec<_> = if all {
+            statuses
+        } else {
+            statuses
+                .into_iter()
+                .filter(|(_, status, error)| {
+                    error.is_some() || status.as_ref().map(|s| !s.is_clean()).unwrap_or(true)
+                })
+                .collect()
+        };
 
-                        TableRow::new(vec![
-                            CellStyle::highlight(&repo.path),
-                            CellStyle::normal(&status.branch.name),
-                            status_cell,
-                            sync_cell,
-                        ])
-                    }
-                    Err(e) => TableRow::new(vec![
+        if filtered.is_empty() {
+            println!("{}", "All repositories are clean".green());
+            return Ok(());
+        }
+
+        // Build title
+        let title = if let Some(ws) = &workspace {
+            if all {
+                format!(" Status: {} ({} repositories) ", ws, filtered.len())
+            } else {
+                format!(" Dirty: {} ({}) ", ws, filtered.len())
+            }
+        } else if all {
+            format!(" Repository Status ({}) ", filtered.len())
+        } else {
+            format!(" Dirty Repositories ({}) ", filtered.len())
+        };
+
+        // Build table config
+        let table_config = TableConfig::new(vec!["Path", "Branch", "Status", "Files"])
+            .with_title(title)
+            .with_widths(vec![
+                Constraint::Percentage(25),
+                Constraint::Percentage(12),
+                Constraint::Percentage(13),
+                Constraint::Percentage(50),
+            ]);
+
+        // Build rows from filtered statuses
+        let rows: Vec<TableRow> = filtered
+            .iter()
+            .map(|(repo, status, error)| {
+                if let Some(err) = error {
+                    return TableRow::new(vec![
                         CellStyle::highlight(&repo.path),
                         CellStyle::dimmed("-"),
-                        CellStyle::error(format!("Error: {}", e)),
+                        CellStyle::warning(*err),
                         CellStyle::dimmed("-"),
-                    ]),
+                    ]);
                 }
+
+                let status = status.as_ref().unwrap();
+                let status_cell = if status.is_clean() {
+                    CellStyle::success("Clean")
+                } else {
+                    CellStyle::warning(status.summary())
+                };
+
+                // Build files list
+                const MAX_FILES: usize = 10;
+                let files_cell = if status.files.is_empty() {
+                    CellStyle::dimmed("-")
+                } else {
+                    let file_names: Vec<_> = status.files
+                        .iter()
+                        .take(MAX_FILES)
+                        .map(|f| {
+                            let prefix = match (&f.index_status, &f.worktree_status) {
+                                (Some(_), None) => "+",
+                                (None, Some(crate::git::status::FileStatusCode::Untracked)) => "?",
+                                (Some(_), Some(_)) => "*",
+                                (_, Some(crate::git::status::FileStatusCode::Deleted)) => "-",
+                                _ => "~",
+                            };
+                            format!("{}{}", prefix, f.path)
+                        })
+                        .collect();
+
+                    let mut files_str = file_names.join("\n");
+                    if status.files.len() > MAX_FILES {
+                        files_str.push_str(&format!("\n(+{} more)", status.files.len() - MAX_FILES));
+                    }
+                    CellStyle::dimmed(files_str)
+                };
+
+                TableRow::new(vec![
+                    CellStyle::highlight(&repo.path),
+                    CellStyle::normal(&status.branch.name),
+                    status_cell,
+                    files_cell,
+                ])
             })
             .collect();
 
