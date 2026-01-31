@@ -63,7 +63,7 @@ pub fn execute(
         }
 
         // Check for uncommitted changes
-        match git.status(local_path) {
+        match git.status_fast(local_path) {
             Ok(status) => {
                 if !status.is_clean() {
                     print_warning(&format!(

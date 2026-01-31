@@ -91,8 +91,8 @@ pub fn execute(
             continue;
         }
 
-        // Check status
-        let status = match git.status(local_path) {
+        // Check status (use status_fast to handle repos without commits)
+        let status = match git.status_fast(local_path) {
             Ok(s) => s,
             Err(e) => {
                 print_error(&format!("{}: Failed to get status: {}", repo.path, e));

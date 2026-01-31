@@ -112,7 +112,7 @@ pub fn execute(
         // Check if repo exists
         if local_path.exists() && git.is_git_repository(local_path) {
             // Check for local changes
-            let status = match git.status(local_path) {
+            let status = match git.status_fast(local_path) {
                 Ok(s) => s,
                 Err(e) => {
                     pb.finish_with_message(format!(
