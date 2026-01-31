@@ -47,7 +47,8 @@ pub fn execute(cli: Cli) -> Result<()> {
         Commands::Status {
             workspace,
             detailed,
-        } => status::execute(&cli.config, workspace, detailed),
+            all,
+        } => status::execute(&cli.config, workspace, detailed, all),
         Commands::Diff { workspace, staged } => diff::execute(&cli.config, workspace, staged),
         Commands::Save {
             workspace,

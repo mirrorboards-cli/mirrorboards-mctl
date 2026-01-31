@@ -116,9 +116,13 @@ pub enum Commands {
         /// Filter by workspace
         workspace: Option<String>,
 
-        /// Show detailed file changes
+        /// Show detailed file changes (only dirty repos by default)
         #[arg(short, long)]
         detailed: bool,
+
+        /// Show all repositories (with --detailed, otherwise ignored)
+        #[arg(short, long)]
+        all: bool,
     },
 
     /// Show diff of changes in repositories

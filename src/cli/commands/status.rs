@@ -11,7 +11,7 @@ use ratatui::layout::Constraint;
 use rayon::prelude::*;
 use std::path::Path;
 
-pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> Result<()> {
+pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all: bool) -> Result<()> {
     let config_file = Path::new(config_path);
 
     if !config_file.exists() {
@@ -41,28 +41,54 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
     }
 
     if detailed {
-        let git = GitClient::new();
+        // Collect statuses concurrently
+        let statuses: Vec<_> = repos
+            .par_iter()
+            .map(|repo| {
+                let local_path = Path::new(&repo.path);
+                if !local_path.exists() || !local_path.join(".git").exists() {
+                    return (repo, None);
+                }
+                let git = GitClient::new();
+                (repo, git.status(local_path).ok())
+            })
+            .collect();
+
+        // Filter to dirty repos only (unless --all)
+        let dirty_repos: Vec<_> = if all {
+            statuses
+        } else {
+            statuses
+                .into_iter()
+                .filter(|(_, status)| {
+                    status.as_ref().map(|s| !s.is_clean()).unwrap_or(true)
+                })
+                .collect()
+        };
+
+        if dirty_repos.is_empty() {
+            println!("{}", "All repositories are clean".green());
+            return Ok(());
+        }
 
         // Print header for detailed view
-        if let Some(ws) = &workspace {
-            println!(
-                "{} {} ({} repositories)",
-                "Status for workspace:".bold(),
-                ws.cyan(),
-                repos.len()
-            );
+        let header = if let Some(ws) = &workspace {
+            if all {
+                format!("Status for workspace: {} ({} repositories)", ws.cyan(), dirty_repos.len())
+            } else {
+                format!("Dirty repositories in {}: {}", ws.cyan(), dirty_repos.len())
+            }
+        } else if all {
+            format!("All repositories ({})", dirty_repos.len())
         } else {
-            println!(
-                "{} ({} repositories)",
-                "Status for all repositories".bold(),
-                repos.len()
-            );
-        }
+            format!("Dirty repositories ({})", dirty_repos.len())
+        };
+        println!("{}", header.bold());
         println!();
 
-        // Detailed view - show each repo separately
-        for repo in repos {
-            print_detailed_status(&git, repo)?;
+        // Detailed view - show each repo
+        for (repo, status) in dirty_repos {
+            print_detailed_status_cached(repo, status.as_ref())?;
         }
     } else {
         // Build title
@@ -82,11 +108,10 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
                 Constraint::Percentage(20),
             ]);
 
-        // Build rows concurrently
+        // Build rows concurrently using fast status (single git call per repo)
         let rows: Vec<TableRow> = repos
             .par_iter()
             .map(|repo| {
-                let git = GitClient::new();
                 let local_path = Path::new(&repo.path);
 
                 if !local_path.exists() {
@@ -98,7 +123,8 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
                     ]);
                 }
 
-                if !git.is_git_repository(local_path) {
+                // Check for .git directory directly (faster than git command)
+                if !local_path.join(".git").exists() {
                     return TableRow::new(vec![
                         CellStyle::highlight(&repo.path),
                         CellStyle::dimmed("-"),
@@ -107,7 +133,8 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
                     ]);
                 }
 
-                match git.status(local_path) {
+                let git = GitClient::new();
+                match git.status_fast(local_path) {
                     Ok(status) => {
                         let status_cell = if status.is_clean() {
                             CellStyle::success("Clean")
@@ -149,7 +176,9 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool) -> 
     Ok(())
 }
 
-fn print_detailed_status(git: &GitClient, repo: &Repository) -> Result<()> {
+use crate::git::status::RepositoryStatus;
+
+fn print_detailed_status_cached(repo: &Repository, status: Option<&RepositoryStatus>) -> Result<()> {
     let local_path = Path::new(&repo.path);
 
     println!("{}", repo.path.bold());
@@ -160,16 +189,18 @@ fn print_detailed_status(git: &GitClient, repo: &Repository) -> Result<()> {
         return Ok(());
     }
 
-    if !git.is_git_repository(local_path) {
+    if !local_path.join(".git").exists() {
         println!("  {}: Not a git repository", "Status".cyan());
         println!();
         return Ok(());
     }
 
-    match git.status(local_path) {
-        Ok(status) => {
+    match status {
+        Some(status) => {
             println!("  {}: {}", "Branch".cyan(), status.branch.name);
-            println!("  {}: {}", "HEAD".cyan(), status.head_short);
+            if !status.head_short.is_empty() {
+                println!("  {}: {}", "HEAD".cyan(), status.head_short);
+            }
 
             if let Some(upstream) = &status.branch.upstream {
                 println!("  {}: {}", "Upstream".cyan(), upstream);
@@ -198,8 +229,8 @@ fn print_detailed_status(git: &GitClient, repo: &Repository) -> Result<()> {
                 }
             }
         }
-        Err(e) => {
-            println!("  {}: {}", "Error".red(), e);
+        None => {
+            println!("  {}: {}", "Error".red(), "Failed to get status");
         }
     }
 
