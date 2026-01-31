@@ -41,7 +41,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
     }
 
     if detailed {
-        // Collect statuses concurrently
+        // Collect statuses concurrently (use status_fast to handle repos without commits)
         let statuses: Vec<_> = repos
             .par_iter()
             .map(|repo| {
@@ -50,7 +50,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
                     return (repo, None);
                 }
                 let git = GitClient::new();
-                (repo, git.status(local_path).ok())
+                (repo, git.status_fast(local_path).ok())
             })
             .collect();
 
