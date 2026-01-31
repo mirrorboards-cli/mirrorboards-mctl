@@ -121,56 +121,36 @@ pub fn execute(
         pb.set_message(format!("{}: Saving...", repo.path));
 
         if dry_run {
-            pb.finish_with_message(format!(
-                "{} {} - would save {} changes",
-                "→".blue(),
-                repo.path,
-                status.files.len()
-            ));
+            pb.finish_and_clear();
+            println!("{} {} - would save {} changes", "→".blue(), repo.path, status.files.len());
             continue;
         }
 
         // Stage all changes
         if let Err(e) = git.add_all(local_path) {
-            pb.finish_with_message(format!(
-                "{} {} - failed to stage: {}",
-                "✗".red(),
-                repo.path,
-                e
-            ));
+            pb.finish_and_clear();
+            println!("{} {} - failed to stage: {}", "✗".red(), repo.path, e);
             error_count += 1;
             continue;
         }
 
         // Commit
         if let Err(e) = git.commit(local_path, message) {
-            pb.finish_with_message(format!(
-                "{} {} - failed to commit: {}",
-                "✗".red(),
-                repo.path,
-                e
-            ));
+            pb.finish_and_clear();
+            println!("{} {} - failed to commit: {}", "✗".red(), repo.path, e);
             error_count += 1;
             continue;
         }
 
         // Push
+        pb.finish_and_clear();
         match git.push(local_path) {
             Ok(_) => {
-                pb.finish_with_message(format!(
-                    "{} {} - saved and pushed",
-                    "✓".green(),
-                    repo.path
-                ));
+                println!("{} {} - saved and pushed", "✓".green(), repo.path);
                 saved_count += 1;
             }
             Err(e) => {
-                pb.finish_with_message(format!(
-                    "{} {} - committed but push failed: {}",
-                    "!".yellow(),
-                    repo.path,
-                    e
-                ));
+                println!("{} {} - committed but push failed: {}", "!".yellow(), repo.path, e);
                 // Still count as partial success
                 saved_count += 1;
             }
