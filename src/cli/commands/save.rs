@@ -101,14 +101,17 @@ pub fn execute(
             }
         };
 
-        // Skip if no changes
-        if status.is_clean() {
+        // Skip if fully synced (no changes and no unpushed commits)
+        if status.is_fully_synced() {
             if verbose {
                 print_info(&format!("{}: No changes, skipping", repo.path));
             }
             skip_count += 1;
             continue;
         }
+
+        // Check if we only need to push (no uncommitted changes but have unpushed commits)
+        let only_push = status.is_clean() && status.has_unpushed_commits();
 
         // Create spinner
         let pb = ProgressBar::new_spinner();
@@ -118,41 +121,62 @@ pub fn execute(
                 .unwrap(),
         );
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        pb.set_message(format!("{}: Saving...", repo.path));
+
+        if only_push {
+            pb.set_message(format!("{}: Pushing {} commit(s)...", repo.path, status.branch.ahead));
+        } else {
+            pb.set_message(format!("{}: Saving...", repo.path));
+        }
 
         if dry_run {
             pb.finish_and_clear();
-            println!("{} {} - would save {} changes", "→".blue(), repo.path, status.files.len());
+            if only_push {
+                println!("{} {} - would push {} commit(s)", "→".blue(), repo.path, status.branch.ahead);
+            } else {
+                println!("{} {} - would save {} changes", "→".blue(), repo.path, status.files.len());
+            }
             continue;
         }
 
-        // Stage all changes
-        if let Err(e) = git.add_all(local_path) {
-            pb.finish_and_clear();
-            println!("{} {} - failed to stage: {}", "✗".red(), repo.path, e);
-            error_count += 1;
-            continue;
-        }
+        // If we have uncommitted changes, stage and commit first
+        if !only_push {
+            // Stage all changes
+            if let Err(e) = git.add_all(local_path) {
+                pb.finish_and_clear();
+                println!("{} {} - failed to stage: {}", "✗".red(), repo.path, e);
+                error_count += 1;
+                continue;
+            }
 
-        // Commit
-        if let Err(e) = git.commit(local_path, message) {
-            pb.finish_and_clear();
-            println!("{} {} - failed to commit: {}", "✗".red(), repo.path, e);
-            error_count += 1;
-            continue;
+            // Commit
+            if let Err(e) = git.commit(local_path, message) {
+                pb.finish_and_clear();
+                println!("{} {} - failed to commit: {}", "✗".red(), repo.path, e);
+                error_count += 1;
+                continue;
+            }
         }
 
         // Push
         pb.finish_and_clear();
         match git.push(local_path) {
             Ok(_) => {
-                println!("{} {} - saved and pushed", "✓".green(), repo.path);
+                if only_push {
+                    println!("{} {} - pushed {} commit(s)", "✓".green(), repo.path, status.branch.ahead);
+                } else {
+                    println!("{} {} - saved and pushed", "✓".green(), repo.path);
+                }
                 saved_count += 1;
             }
             Err(e) => {
-                println!("{} {} - committed but push failed: {}", "!".yellow(), repo.path, e);
-                // Still count as partial success
-                saved_count += 1;
+                if only_push {
+                    println!("{} {} - push failed: {}", "✗".red(), repo.path, e);
+                    error_count += 1;
+                } else {
+                    println!("{} {} - committed but push failed: {}", "!".yellow(), repo.path, e);
+                    // Still count as partial success
+                    saved_count += 1;
+                }
             }
         }
     }
