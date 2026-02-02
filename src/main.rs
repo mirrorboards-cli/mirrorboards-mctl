@@ -9,6 +9,6 @@ fn main() -> Result<()> {
     // Parse CLI arguments
     let cli = Cli::parse_args();
 
-    // Execute the command
+    // Execute command
     execute(cli)
 }
