@@ -13,7 +13,7 @@ pub fn execute(
     config_path: &str,
     workspace: Option<String>,
     dry_run: bool,
-    force: bool,
+    _force: bool,
     _verbose: bool,
 ) -> Result<()> {
     let config_file = Path::new(config_path);
@@ -109,53 +109,15 @@ pub fn execute(
             continue;
         }
 
-        // Check if repo exists
+        // Check if repo exists - skip if already cloned
         if local_path.exists() && git.is_git_repository(local_path) {
-            // Check for local changes
-            let status = match git.status_fast(local_path) {
-                Ok(s) => s,
-                Err(e) => {
-                    pb.finish_with_message(format!(
-                        "{} {} - failed to get status: {}",
-                        "✗".red(),
-                        repo.path,
-                        e
-                    ));
-                    error_count += 1;
-                    continue;
-                }
-            };
-
-            if status.has_uncommitted_changes() && !force {
-                pb.finish_with_message(format!(
-                    "{} {} - skipped (has local changes)",
-                    "!".yellow(),
-                    repo.path
-                ));
-                skip_count += 1;
-                continue;
-            }
-
-            // Sync
-            match git.sync(local_path, &version) {
-                Ok(_) => {
-                    pb.finish_with_message(format!(
-                        "{} {} - synced",
-                        "✓".green(),
-                        repo.path
-                    ));
-                    success_count += 1;
-                }
-                Err(e) => {
-                    pb.finish_with_message(format!(
-                        "{} {} - sync failed: {}",
-                        "✗".red(),
-                        repo.path,
-                        e
-                    ));
-                    error_count += 1;
-                }
-            }
+            pb.finish_with_message(format!(
+                "{} {} - skipped (already cloned)",
+                "→".blue(),
+                repo.path
+            ));
+            skip_count += 1;
+            continue;
         } else {
             // Clone
             match git.clone(&repo.git, local_path, &version) {
