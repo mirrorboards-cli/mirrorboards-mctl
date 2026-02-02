@@ -179,6 +179,16 @@ impl RepositoryStatus {
         !self.conflicted_files().is_empty()
     }
 
+    /// Check if there are unpushed commits.
+    pub fn has_unpushed_commits(&self) -> bool {
+        self.branch.upstream.is_some() && self.branch.ahead > 0
+    }
+
+    /// Check if the repository is fully synced (clean and no unpushed commits).
+    pub fn is_fully_synced(&self) -> bool {
+        self.is_clean() && !self.has_unpushed_commits()
+    }
+
     /// Get a summary string.
     pub fn summary(&self) -> String {
         if self.is_clean() {

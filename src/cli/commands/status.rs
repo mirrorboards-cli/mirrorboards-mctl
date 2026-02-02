@@ -61,13 +61,13 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             statuses
                 .into_iter()
                 .filter(|(_, status)| {
-                    status.as_ref().map(|s| !s.is_clean()).unwrap_or(true)
+                    status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true)
                 })
                 .collect()
         };
 
         if dirty_repos.is_empty() {
-            println!("{}", "All repositories are clean".green());
+            println!("{}", "All repositories are synced".green());
             return Ok(());
         }
 
@@ -117,13 +117,13 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             statuses
                 .into_iter()
                 .filter(|(_, status, error)| {
-                    error.is_some() || status.as_ref().map(|s| !s.is_clean()).unwrap_or(true)
+                    error.is_some() || status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true)
                 })
                 .collect()
         };
 
         if filtered.is_empty() {
-            println!("{}", "All repositories are clean".green());
+            println!("{}", "All repositories are synced".green());
             return Ok(());
         }
 
@@ -164,8 +164,10 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
                 }
 
                 let status = status.as_ref().unwrap();
-                let status_cell = if status.is_clean() {
+                let status_cell = if status.is_fully_synced() {
                     CellStyle::success("Clean")
+                } else if status.is_clean() && status.has_unpushed_commits() {
+                    CellStyle::warning(format!("↑{} unpushed", status.branch.ahead))
                 } else {
                     CellStyle::warning(status.summary())
                 };
