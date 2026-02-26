@@ -97,6 +97,12 @@ pub enum Commands {
     /// Validate the configuration file
     Validate,
 
+    /// Pull latest changes in all repositories
+    Pull {
+        /// Filter by workspace
+        workspace: Option<String>,
+    },
+
     /// Sync repositories (clone/pull)
     Sync {
         /// Filter by workspace

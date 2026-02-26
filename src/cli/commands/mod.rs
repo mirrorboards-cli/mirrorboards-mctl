@@ -5,6 +5,7 @@ pub mod config;
 pub mod diff;
 pub mod init;
 pub mod list;
+pub mod pull;
 pub mod remove;
 pub mod save;
 pub mod show;
@@ -39,6 +40,7 @@ pub fn execute(cli: Cli) -> Result<()> {
         Commands::Remove { path, delete } => remove::execute(&cli.config, &path, delete),
         Commands::Show { path } => show::execute(&cli.config, &path),
         Commands::Validate => validate::execute(&cli.config),
+        Commands::Pull { workspace } => pull::execute(&cli.config, workspace),
         Commands::Sync {
             workspace,
             dry_run,
