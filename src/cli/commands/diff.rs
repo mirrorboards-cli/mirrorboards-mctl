@@ -41,16 +41,16 @@ pub fn execute(config_path: &str, workspace: Option<String>, staged_only: bool) 
     let mut has_output = false;
 
     for repo in repos {
-        let local_path = Path::new(&repo.path);
+        let local_path = repo.resolve_local_path(config_file);
 
-        if !local_path.exists() || !git.is_git_repository(local_path) {
+        if !local_path.exists() || !git.is_git_repository(&local_path) {
             continue;
         }
 
         let diff_output = if staged_only {
-            git.diff_staged(local_path)
+            git.diff_staged(&local_path)
         } else {
-            git.diff(local_path)
+            git.diff(&local_path)
         };
 
         match diff_output {

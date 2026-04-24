@@ -55,7 +55,7 @@ pub fn execute(config_path: &str, repo_path: &str) -> Result<()> {
     }
 
     // Check local state if exists
-    let local_path = Path::new(&repo.path);
+    let local_path = repo.resolve_local_path(config_file);
     println!();
 
     if local_path.exists() {
@@ -64,8 +64,8 @@ pub fn execute(config_path: &str, repo_path: &str) -> Result<()> {
 
         let git = GitClient::new();
 
-        if git.is_git_repository(local_path) {
-            match git.status_fast(local_path) {
+        if git.is_git_repository(&local_path) {
+            match git.status_fast(&local_path) {
                 Ok(status) => {
                     println!("  {}: {}", "Branch".cyan(), status.branch.name);
                     println!("  {}: {}", "HEAD".cyan(), status.head_short);

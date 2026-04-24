@@ -80,10 +80,10 @@ pub fn execute(
     let mut error_count = 0;
 
     for repo in repos {
-        let local_path = Path::new(&repo.path);
+        let local_path = repo.resolve_local_path(config_file);
 
         // Skip if not cloned
-        if !local_path.exists() || !git.is_git_repository(local_path) {
+        if !local_path.exists() || !git.is_git_repository(&local_path) {
             if verbose {
                 print_info(&format!("{}: Not cloned, skipping", repo.path));
             }
@@ -92,7 +92,7 @@ pub fn execute(
         }
 
         // Check status (use status_fast to handle repos without commits)
-        let status = match git.status_fast(local_path) {
+        let status = match git.status_fast(&local_path) {
             Ok(s) => s,
             Err(e) => {
                 print_error(&format!("{}: Failed to get status: {}", repo.path, e));
@@ -141,7 +141,7 @@ pub fn execute(
         // If we have uncommitted changes, stage and commit first
         if !only_push {
             // Stage all changes
-            if let Err(e) = git.add_all(local_path) {
+            if let Err(e) = git.add_all(&local_path) {
                 pb.finish_and_clear();
                 println!("{} {} - failed to stage: {}", "✗".red(), repo.path, e);
                 error_count += 1;
@@ -149,7 +149,7 @@ pub fn execute(
             }
 
             // Commit
-            if let Err(e) = git.commit(local_path, message) {
+            if let Err(e) = git.commit(&local_path, message) {
                 pb.finish_and_clear();
                 println!("{} {} - failed to commit: {}", "✗".red(), repo.path, e);
                 error_count += 1;
@@ -159,7 +159,7 @@ pub fn execute(
 
         // Push
         pb.finish_and_clear();
-        match git.push(local_path) {
+        match git.push(&local_path) {
             Ok(_) => {
                 if only_push {
                     println!("{} {} - pushed {} commit(s)", "✓".green(), repo.path, status.branch.ahead);

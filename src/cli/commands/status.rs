@@ -45,12 +45,12 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
         let statuses: Vec<_> = repos
             .par_iter()
             .map(|repo| {
-                let local_path = Path::new(&repo.path);
+                let local_path = repo.resolve_local_path(config_file);
                 if !local_path.exists() || !local_path.join(".git").exists() {
                     return (repo, None);
                 }
                 let git = GitClient::new();
-                (repo, git.status_fast(local_path).ok())
+                (repo, git.status_fast(&local_path).ok())
             })
             .collect();
 
@@ -88,14 +88,14 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
 
         // Detailed view - show each repo
         for (repo, status) in dirty_repos {
-            print_detailed_status_cached(repo, status.as_ref())?;
+            print_detailed_status_cached(config_file, repo, status.as_ref())?;
         }
     } else {
         // Collect statuses concurrently
         let statuses: Vec<_> = repos
             .par_iter()
             .map(|repo| {
-                let local_path = Path::new(&repo.path);
+                let local_path = repo.resolve_local_path(config_file);
                 if !local_path.exists() {
                     return (repo, None, Some("Not cloned"));
                 }
@@ -103,7 +103,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
                     return (repo, None, Some("Not a git repo"));
                 }
                 let git = GitClient::new();
-                match git.status_fast(local_path) {
+                match git.status_fast(&local_path) {
                     Ok(status) => (repo, Some(status), None),
                     Err(_) => (repo, None, Some("Error")),
                 }
@@ -219,8 +219,12 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
 
 use crate::git::status::RepositoryStatus;
 
-fn print_detailed_status_cached(repo: &Repository, status: Option<&RepositoryStatus>) -> Result<()> {
-    let local_path = Path::new(&repo.path);
+fn print_detailed_status_cached(
+    config_file: &Path,
+    repo: &Repository,
+    status: Option<&RepositoryStatus>,
+) -> Result<()> {
+    let local_path = repo.resolve_local_path(config_file);
 
     println!("{}", repo.path.bold());
 

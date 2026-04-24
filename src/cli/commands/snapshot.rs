@@ -54,16 +54,16 @@ pub fn execute(
             }
         }
 
-        let local_path = Path::new(&repo.path);
+        let local_path = repo.resolve_local_path(config_file);
 
-        if !local_path.exists() || !git.is_git_repository(local_path) {
+        if !local_path.exists() || !git.is_git_repository(&local_path) {
             print_warning(&format!("{}: Not cloned, skipping", repo.path));
             missing_count += 1;
             continue;
         }
 
         // Check for uncommitted changes
-        match git.status_fast(local_path) {
+        match git.status_fast(&local_path) {
             Ok(status) => {
                 if !status.is_clean() {
                     print_warning(&format!(
@@ -79,7 +79,7 @@ pub fn execute(
         }
 
         // Get current HEAD revision
-        match git.get_head_rev(local_path) {
+        match git.get_head_rev(&local_path) {
             Ok(rev) => {
                 print_info(&format!("{}: {}", repo.path, &rev[..12.min(rev.len())]));
                 revisions.push((repo.path.clone(), rev));

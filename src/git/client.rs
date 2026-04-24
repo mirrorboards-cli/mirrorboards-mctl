@@ -143,6 +143,80 @@ impl GitClient {
         Ok(())
     }
 
+    /// Initialize a git repository inside an existing directory and check out the target revision.
+    pub fn clone_into_existing_dir(
+        &self,
+        url: &str,
+        target: &Path,
+        version: &VersionSpec,
+    ) -> GitResult<()> {
+        std::fs::create_dir_all(target)?;
+
+        let init_cmd = self.apply_config(GitCommand::new("init").work_dir(target));
+        self.run_command(init_cmd)?;
+
+        let remote_add_cmd = self.apply_config(
+            GitCommand::new("remote")
+                .work_dir(target)
+                .arg("add")
+                .arg("origin")
+                .arg(url),
+        );
+        self.run_command(remote_add_cmd)?;
+
+        match version {
+            VersionSpec::DefaultBranch => {
+                self.fetch_remote(target, "origin", None)?;
+                self.run_command(self.apply_config(
+                    GitCommand::new("remote")
+                        .work_dir(target)
+                        .arg("set-head")
+                        .arg("origin")
+                        .arg("-a"),
+                ))?;
+
+                let head_ref = self.run_command(self.apply_config(
+                    GitCommand::new("symbolic-ref")
+                        .work_dir(target)
+                        .flag("--short")
+                        .arg("refs/remotes/origin/HEAD"),
+                ))?;
+                let branch = head_ref.trim().trim_start_matches("origin/").to_string();
+                self.checkout_tracking_branch(target, &branch)?;
+            }
+            VersionSpec::Branch(branch) => {
+                self.fetch_remote(target, "origin", Some(branch))?;
+                self.checkout_tracking_branch(target, branch)?;
+            }
+            VersionSpec::Tag(tag) => {
+                self.run_command_with_retry(self.apply_config(
+                    GitCommand::new("fetch")
+                        .work_dir(target)
+                        .arg("origin")
+                        .arg("tag")
+                        .arg(tag),
+                ))?;
+                self.run_command(self.apply_config(
+                    GitCommand::new("checkout")
+                        .work_dir(target)
+                        .flag("--force")
+                        .arg(format!("tags/{}", tag)),
+                ))?;
+            }
+            VersionSpec::Rev(rev) => {
+                self.fetch_remote(target, "origin", None)?;
+                self.run_command(self.apply_config(
+                    GitCommand::new("checkout")
+                        .work_dir(target)
+                        .flag("--force")
+                        .arg(rev),
+                ))?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Fetch from remote.
     pub fn fetch(&self, repo_path: &Path) -> GitResult<()> {
         self.ensure_git_repo(repo_path)?;
@@ -389,6 +463,30 @@ impl GitClient {
             }
         }
 
+        Ok(())
+    }
+
+    fn fetch_remote(&self, repo_path: &Path, remote: &str, refspec: Option<&str>) -> GitResult<()> {
+        let mut cmd = GitCommand::new("fetch").work_dir(repo_path).arg(remote);
+        if let Some(refspec) = refspec {
+            cmd = cmd.arg(refspec);
+        }
+        let cmd = self.apply_config(cmd);
+        self.run_command_with_retry(cmd)?;
+        Ok(())
+    }
+
+    fn checkout_tracking_branch(&self, repo_path: &Path, branch: &str) -> GitResult<()> {
+        let cmd = self.apply_config(
+            GitCommand::new("checkout")
+                .work_dir(repo_path)
+                .flag("--force")
+                .flag("--track")
+                .flag("-B")
+                .arg(branch)
+                .arg(format!("origin/{}", branch)),
+        );
+        self.run_command(cmd)?;
         Ok(())
     }
 

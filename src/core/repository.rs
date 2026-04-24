@@ -1,6 +1,7 @@
 //! Repository model and version specification.
 
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// Version specification for a repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +165,19 @@ impl Repository {
         }
 
         Ok(())
+    }
+
+    /// Resolve this repository path relative to the config file location.
+    pub fn resolve_local_path(&self, config_path: &Path) -> PathBuf {
+        let repo_path = Path::new(&self.path);
+        if repo_path.is_absolute() {
+            repo_path.to_path_buf()
+        } else {
+            config_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(repo_path)
+        }
     }
 
     /// Get the repository name from the git URL.

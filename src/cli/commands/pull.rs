@@ -61,13 +61,13 @@ pub fn execute(config_path: &str, workspace: Option<String>) -> Result<()> {
     let results: Vec<(&Repository, PullResult)> = repos
         .par_iter()
         .map(|repo| {
-            let local_path = Path::new(&repo.path);
+            let local_path = repo.resolve_local_path(config_file);
 
-            if !local_path.exists() || !git.is_git_repository(local_path) {
+            if !local_path.exists() || !git.is_git_repository(&local_path) {
                 return (*repo, PullResult::Skipped);
             }
 
-            match git.pull(local_path) {
+            match git.pull(&local_path) {
                 Ok(_) => (*repo, PullResult::Success),
                 Err(e) => (*repo, PullResult::Failed(e.to_string())),
             }

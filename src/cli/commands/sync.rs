@@ -79,7 +79,7 @@ pub fn execute(
     let mut error_count = 0;
 
     for repo in repos {
-        let local_path = Path::new(&repo.path);
+        let local_path = repo.resolve_local_path(config_file);
         let version = repo.version_spec();
 
         // Create progress spinner
@@ -93,7 +93,7 @@ pub fn execute(
         pb.set_message(format!("{} ({})", repo.path, version));
 
         if dry_run {
-            if local_path.exists() && git.is_git_repository(local_path) {
+            if local_path.exists() && git.is_git_repository(&local_path) {
                 pb.finish_with_message(format!(
                     "{} {} - would pull",
                     "→".blue(),
@@ -111,7 +111,7 @@ pub fn execute(
         }
 
         // Check if repo exists - skip if already cloned
-        if local_path.exists() && git.is_git_repository(local_path) {
+        if local_path.exists() && git.is_git_repository(&local_path) {
             pb.finish_with_message(format!(
                 "{} {} - skipped (already cloned)",
                 "→".blue(),
@@ -120,8 +120,8 @@ pub fn execute(
             skip_count += 1;
             continue;
         } else {
-            // Clone
-            match git.clone(&repo.git, local_path, &version) {
+            // Clone / bootstrap
+            match clone_repository(&git, repo, &local_path, &version) {
                 Ok(_) => {
                     pb.finish_with_message(format!(
                         "{} {} - cloned",
@@ -187,15 +187,30 @@ fn bootstrap_top_level_repositories(config_file: &Path, git: &GitClient) -> Resu
     let mut bootstrapped = false;
 
     for repo in &raw_config.repositories {
-        let local_path = Path::new(&repo.path);
+        let local_path = repo.resolve_local_path(config_file);
 
-        if local_path.exists() && git.is_git_repository(local_path) {
+        if local_path.exists() && git.is_git_repository(&local_path) {
             continue;
         }
 
-        git.clone(&repo.git, local_path, &repo.version_spec())?;
+        clone_repository(git, repo, &local_path, &repo.version_spec())?;
         bootstrapped = true;
     }
 
     Ok(bootstrapped)
+}
+
+fn clone_repository(
+    git: &GitClient,
+    repo: &Repository,
+    local_path: &Path,
+    version: &crate::core::repository::VersionSpec,
+) -> Result<()> {
+    if repo.path == "." {
+        git.clone_into_existing_dir(&repo.git, local_path, version)?;
+    } else {
+        git.clone(&repo.git, local_path, version)?;
+    }
+
+    Ok(())
 }
