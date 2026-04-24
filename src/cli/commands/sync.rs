@@ -2,6 +2,7 @@
 
 use crate::cli::commands::{print_error, print_info, print_success, print_warning};
 use crate::core::config::MirrorConfig;
+use crate::core::error::ConfigError;
 use crate::core::repository::Repository;
 use crate::git::GitClient;
 use anyhow::Result;
@@ -26,7 +27,15 @@ pub fn execute(
         return Ok(());
     }
 
-    let config = MirrorConfig::load(config_file)?;
+    let git = GitClient::new();
+
+    // Check git is available
+    if let Err(e) = git.check_git_available() {
+        print_error(&format!("Git is not available: {}", e));
+        return Ok(());
+    }
+
+    let config = load_sync_config(config_file, &git, dry_run)?;
 
     // Filter repositories
     let repos: Vec<&Repository> = if let Some(ws) = &workspace {
@@ -64,14 +73,6 @@ pub fn execute(
         println!("{}", "(dry run)".yellow());
     }
     println!();
-
-    let git = GitClient::new();
-
-    // Check git is available
-    if let Err(e) = git.check_git_available() {
-        print_error(&format!("Git is not available: {}", e));
-        return Ok(());
-    }
 
     let mut success_count = 0;
     let mut skip_count = 0;
@@ -166,4 +167,35 @@ pub fn execute(
     }
 
     Ok(())
+}
+
+fn load_sync_config(config_file: &Path, git: &GitClient, dry_run: bool) -> Result<MirrorConfig> {
+    match MirrorConfig::load(config_file) {
+        Ok(config) => Ok(config),
+        Err(ConfigError::IncludeNotFound { .. }) if !dry_run => {
+            if bootstrap_top_level_repositories(config_file, git)? {
+                print_info("Bootstrapped top-level repositories for include resolution");
+            }
+            Ok(MirrorConfig::load(config_file)?)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn bootstrap_top_level_repositories(config_file: &Path, git: &GitClient) -> Result<bool> {
+    let raw_config = MirrorConfig::load_raw(config_file)?;
+    let mut bootstrapped = false;
+
+    for repo in &raw_config.repositories {
+        let local_path = Path::new(&repo.path);
+
+        if local_path.exists() && git.is_git_repository(local_path) {
+            continue;
+        }
+
+        git.clone(&repo.git, local_path, &repo.version_spec())?;
+        bootstrapped = true;
+    }
+
+    Ok(bootstrapped)
 }
