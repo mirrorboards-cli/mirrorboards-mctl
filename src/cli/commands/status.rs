@@ -5,6 +5,7 @@ use crate::cli::table::{render_table, CellStyle, TableConfig, TableRow};
 use crate::core::config::MirrorConfig;
 use crate::core::repository::Repository;
 use crate::git::GitClient;
+use crate::git::status::RepositoryStatus;
 use anyhow::Result;
 use colored::Colorize;
 use ratatui::layout::Constraint;
@@ -15,10 +16,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
     let config_file = Path::new(config_path);
 
     if !config_file.exists() {
-        print_error(&format!(
-            "Configuration file not found: {}",
-            config_path
-        ));
+        print_error(&format!("Configuration file not found: {}", config_path));
         return Ok(());
     }
 
@@ -60,9 +58,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
         } else {
             statuses
                 .into_iter()
-                .filter(|(_, status)| {
-                    status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true)
-                })
+                .filter(|(_, status)| status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true))
                 .collect()
         };
 
@@ -71,7 +67,6 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             return Ok(());
         }
 
-        // Print header for detailed view
         let header = if let Some(ws) = &workspace {
             if all {
                 format!("Status for workspace: {} ({} repositories)", ws.cyan(), dirty_repos.len())
@@ -86,12 +81,10 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
         println!("{}", header.bold());
         println!();
 
-        // Detailed view - show each repo
         for (repo, status) in dirty_repos {
             print_detailed_status_cached(config_file, repo, status.as_ref())?;
         }
     } else {
-        // Collect statuses concurrently
         let statuses: Vec<_> = repos
             .par_iter()
             .map(|repo| {
@@ -110,7 +103,6 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             })
             .collect();
 
-        // Filter to dirty repos only (unless --all)
         let filtered: Vec<_> = if all {
             statuses
         } else {
@@ -127,7 +119,6 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             return Ok(());
         }
 
-        // Build title
         let title = if let Some(ws) = &workspace {
             if all {
                 format!(" Status: {} ({} repositories) ", ws, filtered.len())
@@ -140,75 +131,42 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             format!(" Dirty Repositories ({}) ", filtered.len())
         };
 
-        // Build table config
-        let table_config = TableConfig::new(vec!["Path", "Branch", "Status", "Files"])
+        let table_config = TableConfig::new(vec!["Path", "Branch", "Sync", "Changes"])
             .with_title(title)
             .with_widths(vec![
-                Constraint::Percentage(25),
-                Constraint::Percentage(12),
-                Constraint::Percentage(13),
-                Constraint::Percentage(50),
+                Constraint::Fill(4),
+                Constraint::Length(16),
+                Constraint::Length(12),
+                Constraint::Length(12),
             ]);
 
-        // Build rows from filtered statuses
         let rows: Vec<TableRow> = filtered
             .iter()
             .map(|(repo, status, error)| {
+                let (path_cell, path_link) = path_cell(repo, config_file);
+
                 if let Some(err) = error {
                     return TableRow::new(vec![
-                        CellStyle::highlight(&repo.path),
+                        path_cell,
                         CellStyle::dimmed("-"),
                         CellStyle::warning(*err),
                         CellStyle::dimmed("-"),
-                    ]);
+                    ])
+                    .with_hyperlinks(vec![path_link, None, None, None]);
                 }
 
                 let status = status.as_ref().unwrap();
-                let status_cell = if status.is_fully_synced() {
-                    CellStyle::success("Clean")
-                } else if status.is_clean() && status.has_unpushed_commits() {
-                    CellStyle::warning(format!("↑{} unpushed", status.branch.ahead))
-                } else {
-                    CellStyle::warning(status.summary())
-                };
-
-                // Build files list
-                const MAX_FILES: usize = 10;
-                let files_cell = if status.files.is_empty() {
-                    CellStyle::dimmed("-")
-                } else {
-                    let file_names: Vec<_> = status.files
-                        .iter()
-                        .take(MAX_FILES)
-                        .map(|f| {
-                            let prefix = match (&f.index_status, &f.worktree_status) {
-                                (Some(_), None) => "+",
-                                (None, Some(crate::git::status::FileStatusCode::Untracked)) => "?",
-                                (Some(_), Some(_)) => "*",
-                                (_, Some(crate::git::status::FileStatusCode::Deleted)) => "-",
-                                _ => "~",
-                            };
-                            format!("{}{}", prefix, f.path)
-                        })
-                        .collect();
-
-                    let mut files_str = file_names.join("\n");
-                    if status.files.len() > MAX_FILES {
-                        files_str.push_str(&format!("\n(+{} more)", status.files.len() - MAX_FILES));
-                    }
-                    CellStyle::dimmed(files_str)
-                };
 
                 TableRow::new(vec![
-                    CellStyle::highlight(&repo.path),
+                    path_cell,
                     CellStyle::normal(&status.branch.name),
-                    status_cell,
-                    files_cell,
+                    sync_cell(status),
+                    changes_cell(status),
                 ])
+                .with_hyperlinks(vec![path_link, None, None, None])
             })
             .collect();
 
-        // Render table
         if let Err(e) = render_table(&table_config, &rows) {
             eprintln!("Error rendering table: {}", e);
         }
@@ -217,7 +175,97 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
     Ok(())
 }
 
-use crate::git::status::RepositoryStatus;
+fn path_cell(repo: &Repository, config_file: &Path) -> (CellStyle, Option<String>) {
+    let local_path = repo.resolve_local_path(config_file);
+    let hyperlink = vscode_uri_for_path(&local_path);
+    (CellStyle::highlight(&repo.path), hyperlink)
+}
+
+fn vscode_uri_for_path(path: &Path) -> Option<String> {
+    if !path.exists() {
+        return None;
+    }
+
+    let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut encoded = absolute
+        .to_string_lossy()
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'/'
+            | b'-'
+            | b'.'
+            | b'_'
+            | b'~' => vec![byte as char].into_iter().collect::<Vec<_>>(),
+            _ => format!("%{:02X}", byte).chars().collect::<Vec<_>>(),
+        })
+        .collect::<String>();
+
+    if path.is_dir() && !encoded.ends_with('/') {
+        encoded.push('/');
+    }
+
+    Some(format!("vscode://file/{}", encoded))
+}
+
+fn sync_cell(status: &RepositoryStatus) -> CellStyle {
+    if status.branch.is_detached() {
+        return CellStyle::warning("detached");
+    }
+
+    match (&status.branch.upstream, status.branch.ahead, status.branch.behind) {
+        (None, _, _) => CellStyle::dimmed("local"),
+        (Some(_), 0, 0) => CellStyle::success("Synced"),
+        (Some(_), ahead, 0) => CellStyle::warning(format!("↑{}", ahead)),
+        (Some(_), 0, behind) => CellStyle::warning(format!("↓{}", behind)),
+        (Some(_), ahead, behind) => CellStyle::warning(format!("↑{} ↓{}", ahead, behind)),
+    }
+}
+
+fn changes_cell(status: &RepositoryStatus) -> CellStyle {
+    let summary = change_summary(status);
+
+    if summary == "-" {
+        CellStyle::dimmed(summary)
+    } else if status.has_conflicts() {
+        CellStyle::error(summary)
+    } else {
+        CellStyle::warning(summary)
+    }
+}
+
+fn change_summary(status: &RepositoryStatus) -> String {
+    let conflicts = status.conflicted_files().len();
+    let staged = status.files.iter().filter(|f| f.is_staged() && !f.is_conflicted()).count();
+    let untracked = status.untracked_files().len();
+    let modified = status
+        .files
+        .iter()
+        .filter(|f| f.is_unstaged() && !f.is_untracked() && !f.is_conflicted())
+        .count();
+
+    let mut parts = Vec::new();
+    if conflicts > 0 {
+        parts.push(format!("!{}", conflicts));
+    }
+    if staged > 0 {
+        parts.push(format!("S{}", staged));
+    }
+    if modified > 0 {
+        parts.push(format!("M{}", modified));
+    }
+    if untracked > 0 {
+        parts.push(format!("?{}", untracked));
+    }
+
+    if parts.is_empty() {
+        "-".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
 
 fn print_detailed_status_cached(
     config_file: &Path,
@@ -262,12 +310,11 @@ fn print_detailed_status_cached(
             } else {
                 println!("  {}: {}", "Status".cyan(), status.summary().yellow());
 
-                // Show file changes
                 for file in &status.files {
                     let icon = match (&file.index_status, &file.worktree_status) {
-                        (Some(_), None) => "S".green(), // Staged
+                        (Some(_), None) => "S".green(),
                         (None, Some(crate::git::status::FileStatusCode::Untracked)) => "?".yellow(),
-                        (_, Some(_)) => "M".yellow(), // Modified
+                        (_, Some(_)) => "M".yellow(),
                         _ => " ".normal(),
                     };
                     println!("    {} {}", icon, file.path);
@@ -281,4 +328,87 @@ fn print_detailed_status_cached(
 
     println!();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{change_summary, sync_cell, vscode_uri_for_path};
+    use crate::cli::table::CellStyle;
+    use crate::git::status::{BranchInfo, FileStatus, FileStatusCode, RepositoryStatus};
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn change_summary_compacts_status_counts() {
+        let status = RepositoryStatus {
+            branch: BranchInfo {
+                name: "main".into(),
+                upstream: Some("origin/main".into()),
+                ahead: 0,
+                behind: 0,
+            },
+            files: vec![
+                FileStatus {
+                    path: "src/lib.rs".into(),
+                    index_status: Some(FileStatusCode::Modified),
+                    worktree_status: None,
+                    original_path: None,
+                },
+                FileStatus {
+                    path: "src/main.rs".into(),
+                    index_status: None,
+                    worktree_status: Some(FileStatusCode::Modified),
+                    original_path: None,
+                },
+                FileStatus {
+                    path: "README.md".into(),
+                    index_status: None,
+                    worktree_status: Some(FileStatusCode::Untracked),
+                    original_path: None,
+                },
+                FileStatus {
+                    path: "Cargo.toml".into(),
+                    index_status: Some(FileStatusCode::Unmerged),
+                    worktree_status: Some(FileStatusCode::Unmerged),
+                    original_path: None,
+                },
+            ],
+            head_short: "abc1234".into(),
+            head_full: "abc1234abc1234abc1234abc1234abc1234".into(),
+        };
+
+        assert_eq!(change_summary(&status), "!1 S1 M1 ?1");
+    }
+
+    #[test]
+    fn sync_cell_reports_branch_drift() {
+        let status = RepositoryStatus {
+            branch: BranchInfo {
+                name: "main".into(),
+                upstream: Some("origin/main".into()),
+                ahead: 2,
+                behind: 3,
+            },
+            files: vec![],
+            head_short: String::new(),
+            head_full: String::new(),
+        };
+
+        match sync_cell(&status) {
+            CellStyle::Warning(text) => assert_eq!(text, "↑2 ↓3"),
+            other => panic!("expected warning cell, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn vscode_uri_encodes_spaces_for_existing_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("repo with spaces");
+        fs::create_dir_all(&path).unwrap();
+
+        let uri = vscode_uri_for_path(&path).unwrap();
+        assert!(uri.starts_with("vscode://file//"));
+        assert!(uri.contains("repo%20with%20spaces"));
+        assert!(uri.ends_with('/'));
+    }
 }
