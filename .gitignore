@@ -1,1 +1,3 @@
 target/
+.gsd/
+.bg-shell
