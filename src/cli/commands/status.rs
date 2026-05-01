@@ -4,15 +4,20 @@ use crate::cli::commands::print_error;
 use crate::cli::table::{render_table, CellStyle, TableConfig, TableRow};
 use crate::core::config::MirrorConfig;
 use crate::core::repository::Repository;
-use crate::git::GitClient;
 use crate::git::status::RepositoryStatus;
+use crate::git::GitClient;
 use anyhow::Result;
 use colored::Colorize;
 use ratatui::layout::Constraint;
 use rayon::prelude::*;
 use std::path::Path;
 
-pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all: bool) -> Result<()> {
+pub fn execute(
+    config_path: &str,
+    workspace: Option<String>,
+    detailed: bool,
+    all: bool,
+) -> Result<()> {
     let config_file = Path::new(config_path);
 
     if !config_file.exists() {
@@ -58,7 +63,12 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
         } else {
             statuses
                 .into_iter()
-                .filter(|(_, status)| status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true))
+                .filter(|(_, status)| {
+                    status
+                        .as_ref()
+                        .map(|s| !s.is_fully_synced())
+                        .unwrap_or(true)
+                })
                 .collect()
         };
 
@@ -69,7 +79,11 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
 
         let header = if let Some(ws) = &workspace {
             if all {
-                format!("Status for workspace: {} ({} repositories)", ws.cyan(), dirty_repos.len())
+                format!(
+                    "Status for workspace: {} ({} repositories)",
+                    ws.cyan(),
+                    dirty_repos.len()
+                )
             } else {
                 format!("Dirty repositories in {}: {}", ws.cyan(), dirty_repos.len())
             }
@@ -109,7 +123,11 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             statuses
                 .into_iter()
                 .filter(|(_, status, error)| {
-                    error.is_some() || status.as_ref().map(|s| !s.is_fully_synced()).unwrap_or(true)
+                    error.is_some()
+                        || status
+                            .as_ref()
+                            .map(|s| !s.is_fully_synced())
+                            .unwrap_or(true)
                 })
                 .collect()
         };
@@ -131,13 +149,13 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
             format!(" Dirty Repositories ({}) ", filtered.len())
         };
 
-        let table_config = TableConfig::new(vec!["Path", "Branch", "Sync", "Changes"])
+        let table_config = TableConfig::new(vec!["Path", "Branch", "Sync", "Files"])
             .with_title(title)
             .with_widths(vec![
-                Constraint::Fill(4),
-                Constraint::Length(16),
-                Constraint::Length(12),
-                Constraint::Length(12),
+                Constraint::Percentage(25),
+                Constraint::Percentage(12),
+                Constraint::Percentage(13),
+                Constraint::Percentage(50),
             ]);
 
         let rows: Vec<TableRow> = filtered
@@ -161,7 +179,7 @@ pub fn execute(config_path: &str, workspace: Option<String>, detailed: bool, all
                     path_cell,
                     CellStyle::normal(&status.branch.name),
                     sync_cell(status),
-                    changes_cell(status),
+                    files_cell(status),
                 ])
                 .with_hyperlinks(vec![path_link, None, None, None])
             })
@@ -191,14 +209,9 @@ fn vscode_uri_for_path(path: &Path) -> Option<String> {
         .to_string_lossy()
         .bytes()
         .flat_map(|byte| match byte {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'/'
-            | b'-'
-            | b'.'
-            | b'_'
-            | b'~' => vec![byte as char].into_iter().collect::<Vec<_>>(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char].into_iter().collect::<Vec<_>>()
+            }
             _ => format!("%{:02X}", byte).chars().collect::<Vec<_>>(),
         })
         .collect::<String>();
@@ -215,7 +228,11 @@ fn sync_cell(status: &RepositoryStatus) -> CellStyle {
         return CellStyle::warning("detached");
     }
 
-    match (&status.branch.upstream, status.branch.ahead, status.branch.behind) {
+    match (
+        &status.branch.upstream,
+        status.branch.ahead,
+        status.branch.behind,
+    ) {
         (None, _, _) => CellStyle::dimmed("local"),
         (Some(_), 0, 0) => CellStyle::success("Synced"),
         (Some(_), ahead, 0) => CellStyle::warning(format!("↑{}", ahead)),
@@ -224,46 +241,45 @@ fn sync_cell(status: &RepositoryStatus) -> CellStyle {
     }
 }
 
-fn changes_cell(status: &RepositoryStatus) -> CellStyle {
-    let summary = change_summary(status);
+fn files_cell(status: &RepositoryStatus) -> CellStyle {
+    const MAX_FILES: usize = 10;
 
-    if summary == "-" {
-        CellStyle::dimmed(summary)
-    } else if status.has_conflicts() {
-        CellStyle::error(summary)
+    if status.files.is_empty() {
+        return CellStyle::dimmed("-");
+    }
+
+    let file_names: Vec<_> = status
+        .files
+        .iter()
+        .take(MAX_FILES)
+        .map(|file| {
+            let prefix = file_status_prefix(file);
+            format!("{}{}", prefix, file.path)
+        })
+        .collect();
+
+    let mut files = file_names.join("\n");
+    if status.files.len() > MAX_FILES {
+        files.push_str(&format!("\n(+{} more)", status.files.len() - MAX_FILES));
+    }
+
+    if status.has_conflicts() {
+        CellStyle::error(files)
     } else {
-        CellStyle::warning(summary)
+        CellStyle::dimmed(files)
     }
 }
 
-fn change_summary(status: &RepositoryStatus) -> String {
-    let conflicts = status.conflicted_files().len();
-    let staged = status.files.iter().filter(|f| f.is_staged() && !f.is_conflicted()).count();
-    let untracked = status.untracked_files().len();
-    let modified = status
-        .files
-        .iter()
-        .filter(|f| f.is_unstaged() && !f.is_untracked() && !f.is_conflicted())
-        .count();
+fn file_status_prefix(file: &crate::git::status::FileStatus) -> &'static str {
+    use crate::git::status::FileStatusCode;
 
-    let mut parts = Vec::new();
-    if conflicts > 0 {
-        parts.push(format!("!{}", conflicts));
-    }
-    if staged > 0 {
-        parts.push(format!("S{}", staged));
-    }
-    if modified > 0 {
-        parts.push(format!("M{}", modified));
-    }
-    if untracked > 0 {
-        parts.push(format!("?{}", untracked));
-    }
-
-    if parts.is_empty() {
-        "-".to_string()
-    } else {
-        parts.join(" ")
+    match (&file.index_status, &file.worktree_status) {
+        (Some(FileStatusCode::Unmerged), _) | (_, Some(FileStatusCode::Unmerged)) => "!",
+        (Some(_), Some(_)) => "*",
+        (Some(_), None) => "+",
+        (None, Some(FileStatusCode::Untracked)) => "?",
+        (_, Some(FileStatusCode::Deleted)) => "-",
+        _ => "~",
     }
 }
 
@@ -332,14 +348,14 @@ fn print_detailed_status_cached(
 
 #[cfg(test)]
 mod tests {
-    use super::{change_summary, sync_cell, vscode_uri_for_path};
+    use super::{files_cell, sync_cell, vscode_uri_for_path};
     use crate::cli::table::CellStyle;
     use crate::git::status::{BranchInfo, FileStatus, FileStatusCode, RepositoryStatus};
     use std::fs;
     use tempfile::TempDir;
 
     #[test]
-    fn change_summary_compacts_status_counts() {
+    fn files_cell_lists_changed_files_with_status_prefixes() {
         let status = RepositoryStatus {
             branch: BranchInfo {
                 name: "main".into(),
@@ -366,18 +382,53 @@ mod tests {
                     worktree_status: Some(FileStatusCode::Untracked),
                     original_path: None,
                 },
-                FileStatus {
-                    path: "Cargo.toml".into(),
-                    index_status: Some(FileStatusCode::Unmerged),
-                    worktree_status: Some(FileStatusCode::Unmerged),
-                    original_path: None,
-                },
             ],
             head_short: "abc1234".into(),
             head_full: "abc1234abc1234abc1234abc1234abc1234".into(),
         };
 
-        assert_eq!(change_summary(&status), "!1 S1 M1 ?1");
+        match files_cell(&status) {
+            CellStyle::Dimmed(text) => assert_eq!(text, "+src/lib.rs\n~src/main.rs\n?README.md"),
+            other => panic!(
+                "expected dimmed file list, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+
+    #[test]
+    fn files_cell_truncates_long_file_lists() {
+        let files = (0..11)
+            .map(|index| FileStatus {
+                path: format!("file{index}.txt"),
+                index_status: None,
+                worktree_status: Some(FileStatusCode::Modified),
+                original_path: None,
+            })
+            .collect();
+        let status = RepositoryStatus {
+            branch: BranchInfo {
+                name: "main".into(),
+                upstream: Some("origin/main".into()),
+                ahead: 0,
+                behind: 0,
+            },
+            files,
+            head_short: String::new(),
+            head_full: String::new(),
+        };
+
+        match files_cell(&status) {
+            CellStyle::Dimmed(text) => {
+                assert!(text.contains("~file9.txt"));
+                assert!(!text.contains("~file10.txt"));
+                assert!(text.ends_with("(+1 more)"));
+            }
+            other => panic!(
+                "expected dimmed file list, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
     }
 
     #[test]
@@ -396,7 +447,10 @@ mod tests {
 
         match sync_cell(&status) {
             CellStyle::Warning(text) => assert_eq!(text, "↑2 ↓3"),
-            other => panic!("expected warning cell, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected warning cell, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
