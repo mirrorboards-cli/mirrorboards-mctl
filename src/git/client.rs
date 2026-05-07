@@ -118,14 +118,10 @@ impl GitClient {
                 // Let git use repository's default branch
                 GitCommand::clone_repo(url, target)
             }
-            VersionSpec::Branch(branch) => {
-                GitCommand::clone_branch(url, target, branch)
-            }
-            VersionSpec::Tag(tag) => {
-                GitCommand::clone_repo(url, target)
-                    .option("--branch", tag)
-                    .flag("--single-branch")
-            }
+            VersionSpec::Branch(branch) => GitCommand::clone_branch(url, target, branch),
+            VersionSpec::Tag(tag) => GitCommand::clone_repo(url, target)
+                .option("--branch", tag)
+                .flag("--single-branch"),
             VersionSpec::Rev(_) => {
                 // For specific revision, clone first then checkout
                 GitCommand::clone_repo(url, target)
@@ -141,6 +137,54 @@ impl GitClient {
         }
 
         Ok(())
+    }
+
+    /// Clone a repository branch, or create it from the default branch if it is missing upstream.
+    pub fn clone_or_create_branch(
+        &self,
+        url: &str,
+        target: &Path,
+        branch: &str,
+        push_created_branch: bool,
+    ) -> GitResult<()> {
+        let version = VersionSpec::Branch(branch.to_string());
+        match self.clone(url, target, &version) {
+            Ok(()) => Ok(()),
+            Err(err) if Self::is_missing_remote_branch_error(&err) => {
+                self.remove_failed_clone_target(target)?;
+                self.clone(url, target, &VersionSpec::DefaultBranch)?;
+                self.checkout_new_branch(target, branch)?;
+                if push_created_branch {
+                    self.push_set_upstream(target, "origin", branch)?;
+                }
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Initialize an existing directory from a repository branch, or create it from default if missing upstream.
+    pub fn clone_into_existing_dir_or_create_branch(
+        &self,
+        url: &str,
+        target: &Path,
+        branch: &str,
+        push_created_branch: bool,
+    ) -> GitResult<()> {
+        let version = VersionSpec::Branch(branch.to_string());
+        match self.clone_into_existing_dir(url, target, &version) {
+            Ok(()) => Ok(()),
+            Err(err) if Self::is_missing_remote_branch_error(&err) => {
+                self.remove_failed_existing_dir_clone_state(target)?;
+                self.clone_into_existing_dir(url, target, &VersionSpec::DefaultBranch)?;
+                self.checkout_new_branch(target, branch)?;
+                if push_created_branch {
+                    self.push_set_upstream(target, "origin", branch)?;
+                }
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Initialize a git repository inside an existing directory and check out the target revision.
@@ -167,20 +211,24 @@ impl GitClient {
         match version {
             VersionSpec::DefaultBranch => {
                 self.fetch_remote(target, "origin", None)?;
-                self.run_command(self.apply_config(
-                    GitCommand::new("remote")
-                        .work_dir(target)
-                        .arg("set-head")
-                        .arg("origin")
-                        .arg("-a"),
-                ))?;
+                self.run_command(
+                    self.apply_config(
+                        GitCommand::new("remote")
+                            .work_dir(target)
+                            .arg("set-head")
+                            .arg("origin")
+                            .arg("-a"),
+                    ),
+                )?;
 
-                let head_ref = self.run_command(self.apply_config(
-                    GitCommand::new("symbolic-ref")
-                        .work_dir(target)
-                        .flag("--short")
-                        .arg("refs/remotes/origin/HEAD"),
-                ))?;
+                let head_ref = self.run_command(
+                    self.apply_config(
+                        GitCommand::new("symbolic-ref")
+                            .work_dir(target)
+                            .flag("--short")
+                            .arg("refs/remotes/origin/HEAD"),
+                    ),
+                )?;
                 let branch = head_ref.trim().trim_start_matches("origin/").to_string();
                 self.checkout_tracking_branch(target, &branch)?;
             }
@@ -189,28 +237,34 @@ impl GitClient {
                 self.checkout_tracking_branch(target, branch)?;
             }
             VersionSpec::Tag(tag) => {
-                self.run_command_with_retry(self.apply_config(
-                    GitCommand::new("fetch")
-                        .work_dir(target)
-                        .arg("origin")
-                        .arg("tag")
-                        .arg(tag),
-                ))?;
-                self.run_command(self.apply_config(
-                    GitCommand::new("checkout")
-                        .work_dir(target)
-                        .flag("--force")
-                        .arg(format!("tags/{}", tag)),
-                ))?;
+                self.run_command_with_retry(
+                    self.apply_config(
+                        GitCommand::new("fetch")
+                            .work_dir(target)
+                            .arg("origin")
+                            .arg("tag")
+                            .arg(tag),
+                    ),
+                )?;
+                self.run_command(
+                    self.apply_config(
+                        GitCommand::new("checkout")
+                            .work_dir(target)
+                            .flag("--force")
+                            .arg(format!("tags/{}", tag)),
+                    ),
+                )?;
             }
             VersionSpec::Rev(rev) => {
                 self.fetch_remote(target, "origin", None)?;
-                self.run_command(self.apply_config(
-                    GitCommand::new("checkout")
-                        .work_dir(target)
-                        .flag("--force")
-                        .arg(rev),
-                ))?;
+                self.run_command(
+                    self.apply_config(
+                        GitCommand::new("checkout")
+                            .work_dir(target)
+                            .flag("--force")
+                            .arg(rev),
+                    ),
+                )?;
             }
         }
 
@@ -246,6 +300,20 @@ impl GitClient {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Push a branch and set its upstream.
+    pub fn push_set_upstream(&self, repo_path: &Path, remote: &str, branch: &str) -> GitResult<()> {
+        self.ensure_git_repo(repo_path)?;
+        let cmd = self.apply_config(
+            GitCommand::new("push")
+                .work_dir(repo_path)
+                .flag("-u")
+                .arg(remote)
+                .arg(branch),
+        );
+        self.run_command_with_retry(cmd)?;
+        Ok(())
     }
 
     /// Get repository status.
@@ -343,9 +411,7 @@ impl GitClient {
 
         match result {
             Ok(_) => Ok(()),
-            Err(GitError::CommandFailed { stderr, .. })
-                if stderr.contains("did not match any") =>
-            {
+            Err(GitError::CommandFailed { stderr, .. }) if stderr.contains("did not match any") => {
                 Err(GitError::RevisionNotFound {
                     rev: rev.to_string(),
                 })
@@ -421,9 +487,7 @@ impl GitClient {
 
         match result {
             Ok(_) => Ok(()),
-            Err(GitError::CommandFailed { stderr, .. })
-                if stderr.contains("nothing to commit") =>
-            {
+            Err(GitError::CommandFailed { stderr, .. }) if stderr.contains("nothing to commit") => {
                 Err(GitError::NoChangesToCommit)
             }
             Err(e) => Err(e),
@@ -491,6 +555,34 @@ impl GitClient {
     }
 
     // Internal helpers
+
+    fn is_missing_remote_branch_error(error: &GitError) -> bool {
+        match error {
+            GitError::CommandFailed { stderr, .. } => {
+                let lower = stderr.to_lowercase();
+                lower.contains("remote branch") && lower.contains("not found")
+                    || lower.contains("couldn't find remote ref")
+                    || lower.contains("could not find remote branch")
+            }
+            GitError::BranchNotFound { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn remove_failed_clone_target(&self, target: &Path) -> GitResult<()> {
+        if target.exists() {
+            std::fs::remove_dir_all(target)?;
+        }
+        Ok(())
+    }
+
+    fn remove_failed_existing_dir_clone_state(&self, target: &Path) -> GitResult<()> {
+        let git_dir = target.join(".git");
+        if git_dir.exists() {
+            std::fs::remove_dir_all(git_dir)?;
+        }
+        Ok(())
+    }
 
     fn apply_config(&self, cmd: GitCommand) -> GitCommand {
         let mut cmd = cmd.git_path(&self.config.git_path);

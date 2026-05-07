@@ -15,15 +15,13 @@ pub fn execute(
     workspace: Option<String>,
     dry_run: bool,
     _force: bool,
+    create_missing_branches: bool,
     _verbose: bool,
 ) -> Result<()> {
     let config_file = Path::new(config_path);
 
     if !config_file.exists() {
-        print_error(&format!(
-            "Configuration file not found: {}",
-            config_path
-        ));
+        print_error(&format!("Configuration file not found: {}", config_path));
         return Ok(());
     }
 
@@ -35,7 +33,7 @@ pub fn execute(
         return Ok(());
     }
 
-    let config = load_sync_config(config_file, &git, dry_run)?;
+    let config = load_sync_config(config_file, &git, dry_run, create_missing_branches)?;
 
     // Filter repositories
     let repos: Vec<&Repository> = if let Some(ws) = &workspace {
@@ -94,11 +92,7 @@ pub fn execute(
 
         if dry_run {
             if local_path.exists() && git.is_git_repository(&local_path) {
-                pb.finish_with_message(format!(
-                    "{} {} - would pull",
-                    "→".blue(),
-                    repo.path
-                ));
+                pb.finish_with_message(format!("{} {} - would pull", "→".blue(), repo.path));
             } else {
                 pb.finish_with_message(format!(
                     "{} {} - would clone from {}",
@@ -121,13 +115,9 @@ pub fn execute(
             continue;
         } else {
             // Clone / bootstrap
-            match clone_repository(&git, repo, &local_path, &version) {
+            match clone_repository(&git, repo, &local_path, &version, create_missing_branches) {
                 Ok(_) => {
-                    pb.finish_with_message(format!(
-                        "{} {} - cloned",
-                        "✓".green(),
-                        repo.path
-                    ));
+                    pb.finish_with_message(format!("{} {} - cloned", "✓".green(), repo.path));
                     success_count += 1;
                 }
                 Err(e) => {
@@ -169,11 +159,16 @@ pub fn execute(
     Ok(())
 }
 
-fn load_sync_config(config_file: &Path, git: &GitClient, dry_run: bool) -> Result<MirrorConfig> {
+fn load_sync_config(
+    config_file: &Path,
+    git: &GitClient,
+    dry_run: bool,
+    create_missing_branches: bool,
+) -> Result<MirrorConfig> {
     match MirrorConfig::load(config_file) {
         Ok(config) => Ok(config),
         Err(ConfigError::IncludeNotFound { .. }) if !dry_run => {
-            if bootstrap_top_level_repositories(config_file, git)? {
+            if bootstrap_top_level_repositories(config_file, git, create_missing_branches)? {
                 print_info("Bootstrapped top-level repositories for include resolution");
             }
             Ok(MirrorConfig::load(config_file)?)
@@ -182,7 +177,11 @@ fn load_sync_config(config_file: &Path, git: &GitClient, dry_run: bool) -> Resul
     }
 }
 
-fn bootstrap_top_level_repositories(config_file: &Path, git: &GitClient) -> Result<bool> {
+fn bootstrap_top_level_repositories(
+    config_file: &Path,
+    git: &GitClient,
+    create_missing_branches: bool,
+) -> Result<bool> {
     let raw_config = MirrorConfig::load_raw(config_file)?;
     let mut bootstrapped = false;
 
@@ -193,7 +192,13 @@ fn bootstrap_top_level_repositories(config_file: &Path, git: &GitClient) -> Resu
             continue;
         }
 
-        clone_repository(git, repo, &local_path, &repo.version_spec())?;
+        clone_repository(
+            git,
+            repo,
+            &local_path,
+            &repo.version_spec(),
+            create_missing_branches,
+        )?;
         bootstrapped = true;
     }
 
@@ -205,11 +210,26 @@ fn clone_repository(
     repo: &Repository,
     local_path: &Path,
     version: &crate::core::repository::VersionSpec,
+    create_missing_branches: bool,
 ) -> Result<()> {
-    if repo.path == "." {
-        git.clone_into_existing_dir(&repo.git, local_path, version)?;
-    } else {
-        git.clone(&repo.git, local_path, version)?;
+    match (repo.path == ".", create_missing_branches, version) {
+        (true, true, crate::core::repository::VersionSpec::Branch(branch)) => {
+            git.clone_into_existing_dir_or_create_branch(
+                &repo.git,
+                local_path,
+                branch,
+                !repo.skip_push,
+            )?;
+        }
+        (true, _, _) => {
+            git.clone_into_existing_dir(&repo.git, local_path, version)?;
+        }
+        (false, true, crate::core::repository::VersionSpec::Branch(branch)) => {
+            git.clone_or_create_branch(&repo.git, local_path, branch, !repo.skip_push)?;
+        }
+        (false, _, _) => {
+            git.clone(&repo.git, local_path, version)?;
+        }
     }
 
     Ok(())

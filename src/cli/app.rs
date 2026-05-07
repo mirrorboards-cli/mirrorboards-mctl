@@ -115,6 +115,10 @@ pub enum Commands {
         /// Force sync even if there are local changes
         #[arg(short, long)]
         force: bool,
+
+        /// Create a local branch from the repository default branch and push it to origin when the configured remote branch is missing
+        #[arg(long)]
+        create_missing_branches: bool,
     },
 
     /// Show status of repositories

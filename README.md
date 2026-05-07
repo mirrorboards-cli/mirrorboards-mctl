@@ -33,6 +33,7 @@ mctl add git@github.com:org/lib.git --workspace api --workspace core
 # Synchronizacja
 mctl sync                    # wszystkie
 mctl sync api                # tylko workspace api
+mctl sync --create-missing-branches  # jeśli skonfigurowany branch nie istnieje zdalnie, utwórz go z domyślnego
 
 # Status
 mctl status
@@ -89,7 +90,7 @@ workspaces = ["external"]
 | `mctl remove <path>` | Usunięcie repozytorium |
 | `mctl show <path>` | Szczegóły repozytorium |
 | `mctl validate` | Walidacja konfiguracji |
-| `mctl sync [workspace]` | Synchronizacja (clone/pull) |
+| `mctl sync [workspace]` | Synchronizacja (clone/pull); `--create-missing-branches` tworzy branch z domyślnego, gdy skonfigurowany branch nie istnieje zdalnie |
 | `mctl status [workspace]` | Status repozytoriów |
 | `mctl diff [workspace]` | Diff zmian |
 | `mctl save [workspace]` | Commit i push zmian |
