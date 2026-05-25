@@ -63,6 +63,10 @@ pub struct Repository {
     #[serde(default, skip_serializing_if = "is_false", rename = "skip-push")]
     pub skip_push: bool,
 
+    /// Treat repository as read-only: exclude from `mctl status` and `mctl save`
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub readonly: bool,
+
     /// Workspaces this repository belongs to
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workspaces: Vec<String>,
@@ -78,6 +82,7 @@ impl Repository {
             rev: None,
             tag: None,
             skip_push: false,
+            readonly: false,
             workspaces: Vec::new(),
         }
     }

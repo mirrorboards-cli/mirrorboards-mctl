@@ -28,18 +28,18 @@ pub fn execute(
 
     let config = MirrorConfig::load(config_file)?;
 
-    // Filter repositories (exclude skip-push)
+    // Filter repositories (exclude skip-push and readonly)
     let repos: Vec<&Repository> = if let Some(ws) = &workspace {
         config
             .filter_by_workspace(ws)
             .into_iter()
-            .filter(|r| !r.skip_push)
+            .filter(|r| !r.skip_push && !r.readonly)
             .collect()
     } else {
         config
             .repositories
             .iter()
-            .filter(|r| !r.skip_push)
+            .filter(|r| !r.skip_push && !r.readonly)
             .collect()
     };
 

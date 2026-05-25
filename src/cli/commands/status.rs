@@ -27,11 +27,19 @@ pub fn execute(
 
     let config = MirrorConfig::load(config_file)?;
 
-    // Filter repositories
+    // Filter repositories (exclude readonly)
     let repos: Vec<&Repository> = if let Some(ws) = &workspace {
-        config.filter_by_workspace(ws)
+        config
+            .filter_by_workspace(ws)
+            .into_iter()
+            .filter(|r| !r.readonly)
+            .collect()
     } else {
-        config.repositories.iter().collect()
+        config
+            .repositories
+            .iter()
+            .filter(|r| !r.readonly)
+            .collect()
     };
 
     if repos.is_empty() {
