@@ -129,7 +129,21 @@ impl GitClient {
         };
 
         let cmd = self.apply_config(cmd);
-        self.run_command_with_retry(cmd)?;
+        match self.run_command_with_retry(cmd) {
+            Ok(_) => {}
+            Err(err)
+                if matches!(version, VersionSpec::Branch(_))
+                    && Self::is_missing_remote_branch_error(&err)
+                    && !self.remote_url_has_any_heads(url)? =>
+            {
+                self.remove_failed_clone_target(target)?;
+                self.initialize_empty_remote_checkout(url, target)?;
+                if let VersionSpec::Branch(branch) = version {
+                    self.checkout_unborn_branch(target, branch)?;
+                }
+            }
+            Err(err) => return Err(err),
+        }
 
         // For rev, checkout the specific commit
         if let VersionSpec::Rev(rev) = version {
@@ -233,8 +247,16 @@ impl GitClient {
                 self.checkout_tracking_branch(target, &branch)?;
             }
             VersionSpec::Branch(branch) => {
-                self.fetch_remote(target, "origin", Some(branch))?;
-                self.checkout_tracking_branch(target, branch)?;
+                match self.fetch_remote(target, "origin", Some(branch)) {
+                    Ok(()) => self.checkout_tracking_branch(target, branch)?,
+                    Err(err)
+                        if Self::is_missing_remote_branch_error(&err)
+                            && !self.remote_has_any_heads(target, "origin")? =>
+                    {
+                        self.checkout_unborn_branch(target, branch)?;
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             VersionSpec::Tag(tag) => {
                 self.run_command_with_retry(
@@ -552,6 +574,54 @@ impl GitClient {
         );
         self.run_command(cmd)?;
         Ok(())
+    }
+
+    fn checkout_unborn_branch(&self, repo_path: &Path, branch: &str) -> GitResult<()> {
+        let cmd = self.apply_config(
+            GitCommand::new("symbolic-ref")
+                .work_dir(repo_path)
+                .arg("HEAD")
+                .arg(format!("refs/heads/{}", branch)),
+        );
+        self.run_command(cmd)?;
+        Ok(())
+    }
+
+    fn initialize_empty_remote_checkout(&self, url: &str, target: &Path) -> GitResult<()> {
+        std::fs::create_dir_all(target)?;
+
+        let init_cmd = self.apply_config(GitCommand::new("init").work_dir(target));
+        self.run_command(init_cmd)?;
+
+        let remote_add_cmd = self.apply_config(
+            GitCommand::new("remote")
+                .work_dir(target)
+                .arg("add")
+                .arg("origin")
+                .arg(url),
+        );
+        self.run_command(remote_add_cmd)?;
+
+        Ok(())
+    }
+
+    fn remote_url_has_any_heads(&self, url: &str) -> GitResult<bool> {
+        let output = self.run_command_with_retry(
+            self.apply_config(GitCommand::new("ls-remote").flag("--heads").arg(url)),
+        )?;
+        Ok(!output.trim().is_empty())
+    }
+
+    fn remote_has_any_heads(&self, repo_path: &Path, remote: &str) -> GitResult<bool> {
+        let output = self.run_command_with_retry(
+            self.apply_config(
+                GitCommand::new("ls-remote")
+                    .work_dir(repo_path)
+                    .flag("--heads")
+                    .arg(remote),
+            ),
+        )?;
+        Ok(!output.trim().is_empty())
     }
 
     // Internal helpers

@@ -19,10 +19,7 @@ pub fn execute(
     let config_file = Path::new(config_path);
 
     if !config_file.exists() {
-        print_error(&format!(
-            "Configuration file not found: {}",
-            config_path
-        ));
+        print_error(&format!("Configuration file not found: {}", config_path));
         return Ok(());
     }
 
@@ -123,7 +120,10 @@ pub fn execute(
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         if only_push {
-            pb.set_message(format!("{}: Pushing {} commit(s)...", repo.path, status.branch.ahead));
+            pb.set_message(format!(
+                "{}: Pushing {} commit(s)...",
+                repo.path, status.branch.ahead
+            ));
         } else {
             pb.set_message(format!("{}: Saving...", repo.path));
         }
@@ -131,9 +131,19 @@ pub fn execute(
         if dry_run {
             pb.finish_and_clear();
             if only_push {
-                println!("{} {} - would push {} commit(s)", "→".blue(), repo.path, status.branch.ahead);
+                println!(
+                    "{} {} - would push {} commit(s)",
+                    "→".blue(),
+                    repo.path,
+                    status.branch.ahead
+                );
             } else {
-                println!("{} {} - would save {} changes", "→".blue(), repo.path, status.files.len());
+                println!(
+                    "{} {} - would save {} changes",
+                    "→".blue(),
+                    repo.path,
+                    status.files.len()
+                );
             }
             continue;
         }
@@ -157,12 +167,25 @@ pub fn execute(
             }
         }
 
-        // Push
+        // Push. If this branch has no upstream yet, publish it to origin using
+        // the current branch name and set upstream so later saves can use a
+        // plain push.
         pb.finish_and_clear();
-        match git.push(&local_path) {
+        let push_result = if status.branch.upstream.is_none() && !status.branch.is_detached() {
+            git.push_set_upstream(&local_path, "origin", &status.branch.name)
+        } else {
+            git.push(&local_path)
+        };
+
+        match push_result {
             Ok(_) => {
                 if only_push {
-                    println!("{} {} - pushed {} commit(s)", "✓".green(), repo.path, status.branch.ahead);
+                    println!(
+                        "{} {} - pushed {} commit(s)",
+                        "✓".green(),
+                        repo.path,
+                        status.branch.ahead
+                    );
                 } else {
                     println!("{} {} - saved and pushed", "✓".green(), repo.path);
                 }
@@ -173,7 +196,12 @@ pub fn execute(
                     println!("{} {} - push failed: {}", "✗".red(), repo.path, e);
                     error_count += 1;
                 } else {
-                    println!("{} {} - committed but push failed: {}", "!".yellow(), repo.path, e);
+                    println!(
+                        "{} {} - committed but push failed: {}",
+                        "!".yellow(),
+                        repo.path,
+                        e
+                    );
                     // Still count as partial success
                     saved_count += 1;
                 }
