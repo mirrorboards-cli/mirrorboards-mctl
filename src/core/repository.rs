@@ -67,6 +67,12 @@ pub struct Repository {
     #[serde(default, skip_serializing_if = "is_false")]
     pub readonly: bool,
 
+    /// Sync files only (no .git metadata): clone to a temp dir and copy files
+    /// into the target path without overwriting existing files. Skipped when
+    /// the target path is itself a git repository root.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flat: bool,
+
     /// Workspaces this repository belongs to
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workspaces: Vec<String>,
@@ -83,6 +89,7 @@ impl Repository {
             tag: None,
             skip_push: false,
             readonly: false,
+            flat: false,
             workspaces: Vec::new(),
         }
     }

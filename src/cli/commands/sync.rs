@@ -104,8 +104,17 @@ pub fn execute(
             continue;
         }
 
-        // Check if repo exists - skip if already cloned
-        if local_path.exists() && git.is_git_repository(&local_path) {
+        // Check if repo exists - skip if already cloned. Flat repos are synced
+        // into directories that may live inside another checkout (e.g. CI), so
+        // only treat them as cloned when the target itself is a repo root —
+        // `is_git_repository` would also match a parent work tree.
+        let already_cloned = if repo.flat {
+            local_path.join(".git").exists()
+        } else {
+            local_path.exists() && git.is_git_repository(&local_path)
+        };
+
+        if already_cloned {
             pb.finish_with_message(format!(
                 "{} {} - skipped (already cloned)",
                 "→".blue(),
@@ -113,6 +122,26 @@ pub fn execute(
             ));
             skip_count += 1;
             continue;
+        } else if repo.flat {
+            match flat_sync(&git, repo, &local_path, &version) {
+                Ok(_) => {
+                    pb.finish_with_message(format!(
+                        "{} {} - synced (flat)",
+                        "✓".green(),
+                        repo.path
+                    ));
+                    success_count += 1;
+                }
+                Err(e) => {
+                    pb.finish_with_message(format!(
+                        "{} {} - flat sync failed: {}",
+                        "✗".red(),
+                        repo.path,
+                        e
+                    ));
+                    error_count += 1;
+                }
+            }
         } else {
             // Clone / bootstrap
             match clone_repository(&git, repo, &local_path, &version, create_missing_branches) {
@@ -203,6 +232,56 @@ fn bootstrap_top_level_repositories(
     }
 
     Ok(bootstrapped)
+}
+
+/// Sync a flat repository: clone into a temporary directory, then copy the
+/// files (without .git metadata) into the target path. Existing files are
+/// never overwritten, so a config file living in the target (e.g. mirror.toml)
+/// survives the sync.
+fn flat_sync(
+    git: &GitClient,
+    repo: &Repository,
+    local_path: &Path,
+    version: &crate::core::repository::VersionSpec,
+) -> Result<()> {
+    let tmp = std::env::temp_dir().join(format!(
+        "mctl-flat-{}-{}",
+        std::process::id(),
+        repo.name().replace(['/', ':', '@'], "-")
+    ));
+    if tmp.exists() {
+        std::fs::remove_dir_all(&tmp)?;
+    }
+
+    git.clone(&repo.git, &tmp, version)?;
+
+    std::fs::create_dir_all(local_path)?;
+    let result = copy_missing_files(&tmp, local_path);
+    let _ = std::fs::remove_dir_all(&tmp);
+    result
+}
+
+/// Recursively copy `src` into `dst`, merging directories, skipping `.git`
+/// entries and files that already exist in the destination.
+fn copy_missing_files(src: &Path, dst: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".git" {
+            continue;
+        }
+
+        let src_path = entry.path();
+        let dst_path = dst.join(&name);
+
+        if entry.file_type()?.is_dir() {
+            std::fs::create_dir_all(&dst_path)?;
+            copy_missing_files(&src_path, &dst_path)?;
+        } else if !dst_path.exists() {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn clone_repository(
