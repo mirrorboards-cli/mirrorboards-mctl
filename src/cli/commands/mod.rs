@@ -3,6 +3,7 @@
 pub mod add;
 pub mod config;
 pub mod diff;
+pub mod from_org;
 pub mod init;
 pub mod list;
 pub mod pull;
@@ -77,6 +78,25 @@ pub fn execute(cli: Cli) -> Result<()> {
         Commands::Snapshot { workspace, output } => {
             snapshot::execute(&cli.config, workspace, output)
         }
+        Commands::FromOrg {
+            org,
+            output,
+            workspace,
+            limit,
+            https,
+            pin_branch,
+            include_archived,
+            include_forks,
+        } => from_org::execute(
+            &org,
+            output,
+            workspace,
+            limit,
+            https,
+            pin_branch,
+            include_archived,
+            include_forks,
+        ),
         Commands::Config(config_cmd) => match config_cmd {
             ConfigCommands::Init { git, branch, path } => {
                 config::init_remote(&cli.config, &git, &branch, &path)

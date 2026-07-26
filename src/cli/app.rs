@@ -169,6 +169,41 @@ pub enum Commands {
         output: Option<String>,
     },
 
+    /// Generate a mirror.toml from a GitHub organization (uses the `gh` CLI)
+    #[command(visible_alias = "get-repos")]
+    FromOrg {
+        /// GitHub organization (or user) name
+        org: String,
+
+        /// Write to a file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Assign all repositories to this workspace
+        #[arg(short, long)]
+        workspace: Option<String>,
+
+        /// Maximum number of repositories to fetch
+        #[arg(short, long, default_value_t = 1000)]
+        limit: u32,
+
+        /// Use HTTPS clone URLs instead of SSH
+        #[arg(long)]
+        https: bool,
+
+        /// Pin each repository to its current default branch
+        #[arg(long)]
+        pin_branch: bool,
+
+        /// Include archived repositories
+        #[arg(long)]
+        include_archived: bool,
+
+        /// Include forked repositories
+        #[arg(long)]
+        include_forks: bool,
+    },
+
     /// Remote config management
     #[command(subcommand)]
     Config(ConfigCommands),

@@ -95,6 +95,7 @@ workspaces = ["external"]
 | `mctl diff [workspace]` | Diff zmian |
 | `mctl save [workspace]` | Commit i push zmian |
 | `mctl snapshot [workspace]` | Utworzenie snapshot |
+| `mctl from-org <org>` | Wygenerowanie mirror.toml z organizacji GitHub (alias: `get-repos`) |
 | `mctl config init <url>` | Inicjalizacja remote config |
 | `mctl config pull` | Pobranie config z remote |
 | `mctl config push` | Wysłanie config do remote |
@@ -160,6 +161,26 @@ mctl snapshot api                      # tylko workspace api
 # Przywróć ze snapshot
 mctl --config mirror.snapshot.toml sync
 ```
+
+## Generowanie z organizacji GitHub
+
+Zbuduj `mirror.toml` na podstawie wszystkich repozytoriów organizacji (lub użytkownika). Komenda korzysta z GitHub CLI (`gh`), więc wykorzystuje jego uwierzytelnianie i paginację — musi być zainstalowane i zalogowane (`gh auth login`).
+
+```bash
+# Wypisz mirror.toml na stdout (pipeable)
+mctl from-org holonym-foundation > mirror.toml
+
+# Alias
+mctl get-repos holonym-foundation
+
+# Zapis bezpośrednio do pliku
+mctl from-org holonym-foundation --output mirror.toml
+
+# Przypisz wszystkie repo do workspace, użyj HTTPS, przypnij domyślny branch
+mctl from-org holonym-foundation --workspace holonym --https --pin-branch
+```
+
+Domyślnie pomijane są repozytoria zarchiwizowane i forki (`--include-archived`, `--include-forks`, aby je dołączyć). Adresy SSH są używane domyślnie (`--https` dla HTTPS). Diagnostyka trafia na stderr, więc `> mirror.toml` daje czysty plik konfiguracyjny.
 
 ## License
 
