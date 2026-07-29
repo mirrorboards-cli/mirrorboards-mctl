@@ -7,7 +7,7 @@ edition = "2021"
 description = "Mirror configuration management tool"
 license = "MIT OR Apache-2.0"
 authors = ["Mirrorboards Team"]
-repository = "https://github.com/mirrorboards-rs/mctl"
+repository = "https://github.com/mirrorboards-cli/mirrorboards-mctl"
 keywords = ["git", "mirror", "configuration", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 

@@ -1,5 +1,5 @@
 ```bash
-cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
+cargo install --git ssh://git@github.com/mirrorboards-cli/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
 ```
 
 # mctl - Mirror Configuration Management Tool (Next)
@@ -17,7 +17,7 @@ Nowa wersja narzędzia CLI do zarządzania wieloma repozytoriami git zdefiniowan
 ## Instalacja
 
 ```bash
-cargo install --git ssh://git@github.com/mirrorboards/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
+cargo install --git ssh://git@github.com/mirrorboards-cli/mirrorboards-mctl.git --config net.git-fetch-with-cli=true
 ```
 
 ## Szybki start
