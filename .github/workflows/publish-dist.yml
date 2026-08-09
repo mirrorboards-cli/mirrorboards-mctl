@@ -1,0 +1,62 @@
+# Publishes a prebuilt static mctl binary to the orphan `dist` branch.
+#
+# Consumers (build-image.yml workflows across the app repos) fetch it with
+# `git clone --branch dist` over the MCTL_SSH_KEY they already hold — the same
+# key that syncs the mirrors. A branch is the distribution channel because SSH
+# deploy keys cannot download release assets from a private repo, and the
+# consuming orgs sit on the free plan (no org-level secrets), so any other
+# channel would mean provisioning a new credential in every consumer repo.
+name: Publish dist binary
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    name: Build static binary and push to dist branch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build static binary
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Smoke test
+        run: ./target/x86_64-unknown-linux-musl/release/mctl --version
+
+      # The dist branch carries no history: a single commit, force-pushed on
+      # every build, holding the binary, its checksum, and the source commit.
+      - name: Push binary to dist branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir dist-branch
+          cd dist-branch
+          cp ../target/x86_64-unknown-linux-musl/release/mctl mctl-linux-amd64
+          sha256sum mctl-linux-amd64 > mctl-linux-amd64.sha256
+          echo "$GITHUB_SHA" > SOURCE_COMMIT
+          git init -b dist
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "mctl dist build from $GITHUB_SHA"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dist
