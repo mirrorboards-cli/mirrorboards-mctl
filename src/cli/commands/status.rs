@@ -12,6 +12,15 @@ use ratatui::layout::Constraint;
 use rayon::prelude::*;
 use std::path::Path;
 
+/// A repository mounted with `flat = true` is unpacked WITHOUT `.git` by
+/// design — `sync::flat_sync` clones to a temp dir and copies everything but
+/// the git metadata. So a missing checkout is its normal resting state, not
+/// drift. Without this, the workspace root sits in "Dirty Repositories" on
+/// every single run and buries the entries that genuinely changed.
+fn is_flat_without_checkout(repo: &Repository, local_path: &Path) -> bool {
+    repo.flat && !local_path.join(".git").exists()
+}
+
 pub fn execute(
     config_path: &str,
     workspace: Option<String>,
@@ -71,7 +80,10 @@ pub fn execute(
         } else {
             statuses
                 .into_iter()
-                .filter(|(_, status)| {
+                .filter(|(repo, status)| {
+                    if is_flat_without_checkout(repo, &repo.resolve_local_path(config_file)) {
+                        return false;
+                    }
                     status
                         .as_ref()
                         .map(|s| !s.is_fully_synced())
@@ -115,6 +127,11 @@ pub fn execute(
                     return (repo, None, Some("Not cloned"));
                 }
                 if !local_path.join(".git").exists() {
+                    if repo.flat {
+                        // The Sync column is narrow (13%); a longer label is
+                        // truncated to "Flat (no c" and reads as an error.
+                        return (repo, None, Some("Flat"));
+                    }
                     return (repo, None, Some("Not a git repo"));
                 }
                 let git = GitClient::new();
@@ -130,7 +147,10 @@ pub fn execute(
         } else {
             statuses
                 .into_iter()
-                .filter(|(_, status, error)| {
+                .filter(|(repo, status, error)| {
+                    if is_flat_without_checkout(repo, &repo.resolve_local_path(config_file)) {
+                        return false;
+                    }
                     error.is_some()
                         || status
                             .as_ref()
@@ -307,7 +327,14 @@ fn print_detailed_status_cached(
     }
 
     if !local_path.join(".git").exists() {
-        println!("  {}: Not a git repository", "Status".cyan());
+        if repo.flat {
+            println!(
+                "  {}: Flat mount - files synced without a checkout",
+                "Status".cyan()
+            );
+        } else {
+            println!("  {}: Not a git repository", "Status".cyan());
+        }
         println!();
         return Ok(());
     }
