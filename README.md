@@ -185,3 +185,46 @@ By default, archived repositories and forks are skipped (`--include-archived`, `
 ## License
 
 MIT OR Apache-2.0
+
+## forge — obrazy z podgrafu workspace'u
+
+Jednostką budowania jest **domknięcie zależności obrazu**, liczone
+mechanicznie z prawdziwego układu (Rust: path-depy rekurencyjnie, Node:
+`workspace:*` przez mapę pnpm + `file:`), a nie ręczna miniatura monorepo
+w repo appki. Obraz deklaruje manifest rodziny:
+
+```toml
+[[images]]
+name = "xbooks-api"
+app = "applications/applications-xbooks/xbooks-api"
+kind = "rust-bin"          # rust-bin | node-tsx
+port = 3009
+registry = "ghcr.io/mirrorboards-xbooks/xbooks-api"
+```
+
+    mctl images                 # co jest zadeklarowane
+    mctl graph <obraz>          # domknięcie (--format json)
+    mctl hydrate <obraz>        # zmontuj DOKŁADNIE to, czego potrzebuje
+    mctl context <obraz> --out  # kontekst budowania na dysk
+    mctl build <obraz> --push   # obraz + cache w rejestrze
+
+W CI wystarcza pięciolinijkowy caller — przepis mieszka w
+`mirrorboards-cli/mirrorboards-forge`.
+
+### Czasy (xbooks-api, runner GitHuba)
+
+| Sytuacja | Przed | Po |
+|---|---|---|
+| zmiana w kodzie / routerze | 8–13 min | **3,5 min** |
+| retrigger bez zmian | 8–13 min | **16 s** |
+| zimny (nowe zależności) | 8–13 min | 9,4 min |
+
+Granica cache'u leży między kratami z crates.io a kodem workspace'u
+(cargo-chef): warstwa zależności unieważnia się tylko przy zmianie
+manifestów albo locka.
+
+### Te trzy komendy KOŃCZĄ SIĘ NIEZEROWO
+
+W odróżnieniu od reszty mctl. Martwa ścieżka w grafie ma wywrócić CI,
+a nie przejść jako sukces — dzisiejsze ciche gnicie kontekstów obrazów
+wzięło się dokładnie z połykania błędów.
