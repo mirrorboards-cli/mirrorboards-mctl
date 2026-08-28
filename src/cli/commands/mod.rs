@@ -3,6 +3,7 @@
 pub mod add;
 pub mod config;
 pub mod diff;
+pub mod forge;
 pub mod from_org;
 pub mod init;
 pub mod list;
@@ -47,6 +48,25 @@ pub fn execute(cli: Cli) -> Result<()> {
             skip_push,
         ),
         Commands::List { workspace, format } => list::execute(&cli.config, workspace, &format),
+        Commands::Images => forge::list(std::path::Path::new(&cli.config)),
+        Commands::Graph { image, format } => forge::graph(std::path::Path::new(&cli.config), &image, &format),
+        Commands::Context { image, out } => forge::context(std::path::Path::new(&cli.config), &image, &out),
+        Commands::Build {
+            image,
+            tag,
+            push,
+            load,
+            no_cache_store,
+            keep_context,
+        } => forge::build(
+            std::path::Path::new(&cli.config),
+            &image,
+            &tag,
+            push,
+            load,
+            no_cache_store,
+            keep_context,
+        ),
         Commands::Remove { path, delete } => remove::execute(&cli.config, &path, delete),
         Commands::Show { path } => show::execute(&cli.config, &path),
         Commands::Validate => validate::execute(&cli.config),
