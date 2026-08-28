@@ -97,6 +97,12 @@ pub enum Commands {
     /// Validate the configuration file
     Validate,
 
+    /// Clone exactly the repositories an image's closure needs
+    Hydrate {
+        /// Image name
+        image: String,
+    },
+
     /// List declared images ([[images]] across manifests)
     Images,
 

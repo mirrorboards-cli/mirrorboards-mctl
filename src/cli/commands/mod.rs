@@ -5,6 +5,7 @@ pub mod config;
 pub mod diff;
 pub mod forge;
 pub mod from_org;
+pub mod hydrate;
 pub mod init;
 pub mod list;
 pub mod pull;
@@ -48,6 +49,7 @@ pub fn execute(cli: Cli) -> Result<()> {
             skip_push,
         ),
         Commands::List { workspace, format } => list::execute(&cli.config, workspace, &format),
+        Commands::Hydrate { image } => hydrate::execute(std::path::Path::new(&cli.config), &image),
         Commands::Images => forge::list(std::path::Path::new(&cli.config)),
         Commands::Graph { image, format } => forge::graph(std::path::Path::new(&cli.config), &image, &format),
         Commands::Context { image, out } => forge::context(std::path::Path::new(&cli.config), &image, &out),
