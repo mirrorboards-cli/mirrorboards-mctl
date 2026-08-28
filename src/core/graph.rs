@@ -69,11 +69,16 @@ pub fn image_graph(
 
     let units = match spec.kind {
         ImageKind::RustBin => rust_closure(root, &app_dir)?,
-        ImageKind::NodeTsx => node_closure(root, &app_dir)?,
+        ImageKind::NodeTsx => node_closure(root, &app_dir, &[])?,
         // Front z etapami WASM ma DWA domknięcia: paczki JS i kraty Rusta,
         // z których powstają moduły importowane przez JS.
         ImageKind::ViteStatic => {
-            let mut units = node_closure(root, &app_dir)?;
+            // Katalogi WYTWARZANE przez wasm-pack: zależność `file:` na nie
+            // wskazująca nie jest źródłem i na świeżym runnerze jeszcze nie
+            // istnieje — pomijamy ją zamiast wywracać graf.
+            let produced: Vec<PathBuf> =
+                spec.wasm.iter().map(|s| root.join(&s.out_dir)).collect();
+            let mut units = node_closure(root, &app_dir, &produced)?;
             for stage in &spec.wasm {
                 let crate_dir = root.join(&stage.crate_dir);
                 if !crate_dir.is_dir() {
@@ -247,7 +252,11 @@ fn push_resolved(
 
 /// Resolves `workspace:*` through the root pnpm workspace's name map and
 /// `file:` dependencies path-wise, recursively.
-fn node_closure(root: &Path, app_dir: &Path) -> Result<BTreeSet<PathBuf>, GraphError> {
+fn node_closure(
+    root: &Path,
+    app_dir: &Path,
+    produced: &[PathBuf],
+) -> Result<BTreeSet<PathBuf>, GraphError> {
     let name_map = pnpm_package_map(root)?;
 
     let mut visited: BTreeSet<PathBuf> = BTreeSet::new();
@@ -275,7 +284,10 @@ fn node_closure(root: &Path, app_dir: &Path) -> Result<BTreeSet<PathBuf>, GraphE
                     })?;
                     queue.push(target.clone());
                 } else if let Some(rel) = version.strip_prefix("file:") {
-                    let resolved = dir.join(rel);
+                    let resolved = normalize(&dir.join(rel));
+                    if produced.iter().any(|p| normalize(p) == resolved) {
+                        continue;
+                    }
                     let canonical =
                         resolved.canonicalize().map_err(|_| GraphError::DeadPath {
                             manifest: manifest_path.clone(),
@@ -338,6 +350,22 @@ fn pnpm_package_map(root: &Path) -> Result<BTreeMap<String, PathBuf>, GraphError
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Normalizacja LEKSYKALNA — cel może jeszcze nie istnieć (katalog
+/// wytwarzany przez etap budowania), więc `canonicalize` odpada.
+fn normalize(path: &Path) -> PathBuf {
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                parts.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => parts.push(other.as_os_str().to_os_string()),
+        }
+    }
+    parts.iter().collect()
+}
 
 fn canonical(path: &Path) -> Result<PathBuf, GraphError> {
     path.canonicalize().map_err(|e| GraphError::Io {
