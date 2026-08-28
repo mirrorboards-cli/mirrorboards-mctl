@@ -1,19 +1,18 @@
-//! `mctl hydrate <image>` — montuje DOKŁADNIE domknięcie obrazu.
+//! `mctl hydrate <katalog>` — montuje DOKŁADNIE domknięcie katalogu.
 //!
 //! Kurczak i jajko: domknięcie liczy się z prawdziwego workspace'u, a na
-//! świeżym runnerze workspace'u jeszcze nie ma. Rozwiązanie: klonowanie do
-//! punktu stałego — sklonuj repo appki, policz graf tym, co już jest, dołóż
-//! nowo odkryte repozytoria, powtórz. Nierozwiązane ścieżki w trakcie NIE są
-//! błędem; są nim dopiero, gdy runda nie przyniosła nowych repozytoriów.
+//! świeżej maszynie workspace'u jeszcze nie ma. Rozwiązanie: klonowanie do
+//! punktu stałego — sklonuj repo katalogu, policz graf tym, co już jest,
+//! dołóż nowo odkryte repozytoria, powtórz. Nierozwiązane ścieżki w trakcie
+//! NIE są błędem; są nim dopiero, gdy runda nie przyniosła nowych repo.
 //!
-//! Runner montuje więc kilka repozytoriów zamiast dwustu trzydziestu, bez
-//! utrzymywania drugiej listy zależności obok prawdziwej.
+//! Praca nad jedną rodziną nie wymaga więc pełnego `sync` dwustu trzydziestu
+//! repozytoriów.
 
 use crate::cli::commands::{print_error, print_success};
 use crate::core::config::MirrorConfig;
 use crate::core::error::ConfigError;
-use crate::core::graph::{image_graph, GraphError};
-use crate::core::image::ImageSpec;
+use crate::core::graph::{closure, GraphError};
 use crate::core::repository::Repository;
 use crate::git::GitClient;
 use anyhow::{anyhow, Context, Result};
@@ -25,9 +24,12 @@ use std::path::{Path, PathBuf};
 /// zależności; realne domknięcia mają 2–4 warstwy.
 const MAX_ROUNDS: usize = 12;
 
-pub fn execute(config_path: &Path, image: &str) -> Result<()> {
-    let git_bootstrap = GitClient::new();
-    let config = load_with_bootstrap(config_path, &git_bootstrap)?;
+pub fn execute(config_path: &Path, dir: &str) -> Result<()> {
+    let git = GitClient::new();
+    git.check_git_available()
+        .map_err(|e| anyhow!("git niedostępny: {e}"))?;
+
+    let config = load_with_bootstrap(config_path, &git)?;
     let root = config
         .config_path
         .canonicalize()?
@@ -35,28 +37,9 @@ pub fn execute(config_path: &Path, image: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("plik konfiguracyjny nie ma katalogu nadrzędnego"))?
         .to_path_buf();
 
-    let spec: ImageSpec = config
-        .images
-        .iter()
-        .find(|i| i.name == image)
-        .cloned()
-        .ok_or_else(|| anyhow!("obraz '{image}' nie jest zadeklarowany w żadnym manifeście"))?;
-
-    let git = GitClient::new();
-    git.check_git_available()
-        .map_err(|e| anyhow!("git niedostępny: {e}"))?;
-
-    // Repo appki musi być pierwsze — od niego zaczyna się graf.
-    let app_repo = config
-        .repositories
-        .iter()
-        .find(|r| spec.app == r.path || spec.app.starts_with(&format!("{}/", r.path)))
-        .ok_or_else(|| {
-            anyhow!(
-                "żadne repozytorium nie pokrywa ścieżki appki '{}'",
-                spec.app
-            )
-        })?;
+    // Ścieżka podana WZGLĘDEM KORZENIA, bo katalogu może jeszcze nie być na
+    // dysku — po to właśnie wołamy hydrate.
+    let dir = dir.trim_start_matches("./").trim_end_matches('/').to_string();
 
     let mut cloned: BTreeSet<String> = BTreeSet::new();
 
@@ -65,13 +48,22 @@ pub fn execute(config_path: &Path, image: &str) -> Result<()> {
     for repo in config.repositories.iter().filter(|r| r.flat) {
         ensure_cloned(&git, &root, repo, &mut cloned)?;
     }
-    ensure_cloned(&git, &root, app_repo, &mut cloned)?;
+
+    // Repo pokrywające wskazany katalog — od niego zaczyna się graf.
+    let mut owners: Vec<&Repository> = config
+        .repositories
+        .iter()
+        .filter(|r| dir == r.path || dir.starts_with(&format!("{}/", r.path)))
+        .collect();
+    owners.sort_by_key(|r| std::cmp::Reverse(r.path.len()));
+    let owner = owners
+        .first()
+        .ok_or_else(|| anyhow!("żadne repozytorium nie pokrywa ścieżki '{dir}'"))?;
+    ensure_cloned(&git, &root, owner, &mut cloned)?;
 
     for round in 1..=MAX_ROUNDS {
-        match image_graph(&root, &config, &spec) {
+        match closure(&root, &config, &dir) {
             Ok(graph) => {
-                // Graf policzony: domknięcie kompletne, ale repozytoria
-                // z ostatniej warstwy mogą jeszcze nie być na dysku.
                 let mut added = 0;
                 for path in graph.repos.keys() {
                     let repo = config
@@ -86,7 +78,7 @@ pub fn execute(config_path: &Path, image: &str) -> Result<()> {
                 if added == 0 {
                     print_success(&format!(
                         "domknięcie {} zmontowane: {} repozytoriów, {} krat/pakietów",
-                        spec.name.bold(),
+                        dir.bold(),
                         graph.repos.len(),
                         graph.units.len()
                     ));

@@ -1,7 +1,6 @@
 //! Mirror configuration management.
 
 use crate::core::error::{ConfigError, ConfigResult};
-use crate::core::image::ImageSpec;
 use crate::core::include::IncludeResolver;
 use crate::core::repository::Repository;
 use serde::{Deserialize, Serialize};
@@ -67,10 +66,6 @@ pub struct RawMirrorConfig {
     /// List of repositories
     #[serde(default)]
     pub repositories: Vec<Repository>,
-
-    /// Images built out of this manifest's family (see `core::image`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub images: Vec<ImageSpec>,
 }
 
 impl RawMirrorConfig {
@@ -92,9 +87,6 @@ pub struct MirrorConfig {
 
     /// All repositories (from main file and includes)
     pub repositories: Vec<Repository>,
-
-    /// All image declarations (from main file and includes)
-    pub images: Vec<ImageSpec>,
 
     /// Path to the main config file
     pub config_path: PathBuf,
@@ -126,7 +118,6 @@ impl MirrorConfig {
 
         Ok(Self {
             remote: raw_config.remote,
-            images: resolved.images,
             repositories,
             config_path: path.to_path_buf(),
             source_files: resolved.source_files,
@@ -330,7 +321,6 @@ pub fn create_snapshot(
         includes: None,
         remote: None,
         repositories: repos,
-        images: Vec::new(),
     }
 }
 

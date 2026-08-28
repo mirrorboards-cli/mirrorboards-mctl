@@ -186,45 +186,35 @@ By default, archived repositories and forks are skipped (`--include-archived`, `
 
 MIT OR Apache-2.0
 
-## forge — obrazy z podgrafu workspace'u
+## graph / hydrate — domknięcie zależności katalogu
 
-Jednostką budowania jest **domknięcie zależności obrazu**, liczone
-mechanicznie z prawdziwego układu (Rust: path-depy rekurencyjnie, Node:
-`workspace:*` przez mapę pnpm + `file:`), a nie ręczna miniatura monorepo
-w repo appki. Obraz deklaruje manifest rodziny:
+Domknięcie liczone MECHANICZNIE z prawdziwych plików: dla Rusta rekurencyjnie
+po `path =` w `Cargo.toml`, dla Node po `workspace:*` i `file:`. Rodzaj
+wykrywany z obecności manifestów, nic nie trzeba deklarować.
 
-```toml
-[[images]]
-name = "xbooks-api"
-app = "applications/applications-xbooks/xbooks-api"
-kind = "rust-bin"          # rust-bin | node-tsx
-port = 3009
-registry = "ghcr.io/mirrorboards-xbooks/xbooks-api"
-```
+    mctl graph                       # bieżący katalog
+    mctl graph <katalog> [--format json]
+    mctl hydrate <katalog>           # sklonuj DOKŁADNIE to domknięcie
 
-    mctl images                 # co jest zadeklarowane
-    mctl graph <obraz>          # domknięcie (--format json)
-    mctl hydrate <obraz>        # zmontuj DOKŁADNIE to, czego potrzebuje
-    mctl context <obraz> --out  # kontekst budowania na dysk
-    mctl build <obraz> --push   # obraz + cache w rejestrze
+`graph` odpowiada na pytanie „co właściwie wchodzi w skład tej aplikacji"
+i **znajduje martwe ścieżki** — odwołania do układu sprzed migracji, które
+inaczej wychodzą dopiero przy budowaniu, godzinę później:
 
-W CI wystarcza pięciolinijkowy caller — przepis mieszka w
-`mirrorboards-cli/mirrorboards-forge`.
+    $ mctl graph applications/applications-swaplock-query/swaplock-query-api
+    Error: …/Cargo.toml references '../../boards-acta-network/acta-network-envelopes',
+    which resolves to … — the path does not exist (stale layout?)
 
-### Czasy (xbooks-api, runner GitHuba)
+`hydrate` montuje domknięcie na świeżej maszynie bez pełnego `sync` 230
+repozytoriów: klonuje repo katalogu, liczy graf tym, co ma, dociąga repo
+wskazane przez błąd i powtarza aż do punktu stałego (xbooks-api: 6 repo, 15 s).
 
-| Sytuacja | Przed | Po |
-|---|---|---|
-| zmiana w kodzie / routerze | 8–13 min | **3,5 min** |
-| retrigger bez zmian | 8–13 min | **16 s** |
-| zimny (nowe zależności) | 8–13 min | 9,4 min |
+Zależność `file:` wskazująca w głąb kraty Rusta jest traktowana jako
+ARTEFAKT jej budowania (`pkg` wasm-packa), nie paczka — do domknięcia wchodzi
+wtedy krata. Sprawdzane przed istnieniem katalogu, żeby wynik nie zależał od
+tego, co ktoś kiedyś lokalnie zbudował.
 
-Granica cache'u leży między kratami z crates.io a kodem workspace'u
-(cargo-chef): warstwa zależności unieważnia się tylko przy zmianie
-manifestów albo locka.
+### Te dwie komendy KOŃCZĄ SIĘ NIEZEROWO
 
-### Te trzy komendy KOŃCZĄ SIĘ NIEZEROWO
-
-W odróżnieniu od reszty mctl. Martwa ścieżka w grafie ma wywrócić CI,
-a nie przejść jako sukces — dzisiejsze ciche gnicie kontekstów obrazów
-wzięło się dokładnie z połykania błędów.
+W odróżnieniu od reszty mctl. Znalezisko, które nie wywraca wywołania,
+przechodzi niezauważone — a od połykania błędów zaczęło się gnicie
+kontekstów obrazów.

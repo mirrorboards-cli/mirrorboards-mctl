@@ -1,4 +1,4 @@
-//! Dependency closure of an image, computed from the REAL workspace.
+//! Dependency closure of a workspace directory, computed from the REAL files.
 //!
 //! Rust: recursive walk over `path = "…"` dependencies in Cargo.toml files
 //! (all dependency sections, including per-target). Node: resolution of
@@ -9,15 +9,12 @@
 //! class of rot survives silently until a CI build fails an hour later.
 
 use crate::core::config::MirrorConfig;
-use crate::core::image::{ImageKind, ImageSpec};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
-    #[error("image '{0}' is not declared in any manifest ([[images]])")]
-    UnknownImage(String),
     #[error("cannot read {path}: {source}")]
     Io {
         path: PathBuf,
@@ -36,15 +33,37 @@ pub enum GraphError {
     UnknownWorkspacePackage { name: String, manifest: PathBuf },
     #[error("{dir} lies outside every repository declared in the mirror manifests")]
     UnmappedDir { dir: String },
+    #[error("{dir} has neither Cargo.toml nor package.json — nothing to compute a closure from")]
+    NoManifest { dir: String },
 }
 
-/// The computed closure of one image.
+/// What a directory is built from — wykryte z obecności manifestów,
+/// nie deklarowane: `Cargo.toml` znaczy kraty, `package.json` paczki.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Language {
+    Rust,
+    Node,
+    /// Oba naraz — front z rdzeniem WASM w tym samym drzewie.
+    Mixed,
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Language::Rust => write!(f, "rust"),
+            Language::Node => write!(f, "node"),
+            Language::Mixed => write!(f, "mixed"),
+        }
+    }
+}
+
+/// The computed closure of one workspace directory.
 #[derive(Debug, Clone, Serialize)]
-pub struct ImageGraph {
-    pub image: String,
-    pub kind: ImageKind,
-    /// Workspace-relative app dir.
-    pub app: String,
+pub struct Closure {
+    pub language: Language,
+    /// Workspace-relative directory the closure was computed for.
+    pub root_unit: String,
     /// Workspace-relative dirs of every crate/package in the closure
     /// (the app itself included), sorted.
     pub units: Vec<String>,
@@ -52,47 +71,41 @@ pub struct ImageGraph {
     pub repos: BTreeMap<String, String>,
 }
 
-/// Computes the closure of `image` against the workspace at `root`.
-pub fn image_graph(
-    root: &Path,
-    config: &MirrorConfig,
-    spec: &ImageSpec,
-) -> Result<ImageGraph, GraphError> {
-    let app_dir = root.join(&spec.app);
-    if !app_dir.is_dir() {
+/// Computes the closure of `dir` (workspace-relative) at `root`.
+///
+/// Rodzaj wykrywany jest z plików: obecność `Cargo.toml` włącza chodzenie po
+/// path-depach, `package.json` po `workspace:*` i `file:`. Katalog z obydwoma
+/// (front z rdzeniem WASM) daje oba domknięcia naraz.
+pub fn closure(root: &Path, config: &MirrorConfig, dir: &str) -> Result<Closure, GraphError> {
+    let unit_dir = root.join(dir);
+    if !unit_dir.is_dir() {
         return Err(GraphError::DeadPath {
-            manifest: PathBuf::from("[[images]]"),
-            reference: spec.app.clone(),
-            resolved: app_dir,
+            manifest: PathBuf::from("(argument)"),
+            reference: dir.to_string(),
+            resolved: unit_dir,
         });
     }
 
-    let units = match spec.kind {
-        ImageKind::RustBin => rust_closure(root, &app_dir)?,
-        ImageKind::NodeTsx => node_closure(root, &app_dir, &[])?,
-        // Front z etapami WASM ma DWA domknięcia: paczki JS i kraty Rusta,
-        // z których powstają moduły importowane przez JS.
-        ImageKind::ViteStatic => {
-            // Katalogi WYTWARZANE przez wasm-pack: zależność `file:` na nie
-            // wskazująca nie jest źródłem i na świeżym runnerze jeszcze nie
-            // istnieje — pomijamy ją zamiast wywracać graf.
-            let produced: Vec<PathBuf> =
-                spec.wasm.iter().map(|s| root.join(&s.out_dir)).collect();
-            let mut units = node_closure(root, &app_dir, &produced)?;
-            for stage in &spec.wasm {
-                let crate_dir = root.join(&stage.crate_dir);
-                if !crate_dir.is_dir() {
-                    return Err(GraphError::DeadPath {
-                        manifest: PathBuf::from("[[images.wasm]]"),
-                        reference: stage.crate_dir.clone(),
-                        resolved: crate_dir,
-                    });
-                }
-                units.extend(rust_closure(root, &crate_dir)?);
-            }
-            units
+    let has_cargo = unit_dir.join("Cargo.toml").is_file();
+    let has_package = unit_dir.join("package.json").is_file();
+    let language = match (has_cargo, has_package) {
+        (true, true) => Language::Mixed,
+        (true, false) => Language::Rust,
+        (false, true) => Language::Node,
+        (false, false) => {
+            return Err(GraphError::NoManifest {
+                dir: dir.to_string(),
+            })
         }
     };
+
+    let mut units = BTreeSet::new();
+    if has_cargo {
+        units.extend(rust_closure(root, &unit_dir)?);
+    }
+    if has_package {
+        units.extend(node_closure(root, &unit_dir)?);
+    }
 
     let mut rel_units = BTreeSet::new();
     for unit in &units {
@@ -101,10 +114,9 @@ pub fn image_graph(
 
     let repos = map_to_repos(config, &rel_units)?;
 
-    Ok(ImageGraph {
-        image: spec.name.clone(),
-        kind: spec.kind,
-        app: spec.app.clone(),
+    Ok(Closure {
+        language,
+        root_unit: dir.to_string(),
         units: rel_units.into_iter().collect(),
         repos,
     })
@@ -252,14 +264,12 @@ fn push_resolved(
 
 /// Resolves `workspace:*` through the root pnpm workspace's name map and
 /// `file:` dependencies path-wise, recursively.
-fn node_closure(
-    root: &Path,
-    app_dir: &Path,
-    produced: &[PathBuf],
-) -> Result<BTreeSet<PathBuf>, GraphError> {
+fn node_closure(root: &Path, app_dir: &Path) -> Result<BTreeSet<PathBuf>, GraphError> {
     let name_map = pnpm_package_map(root)?;
 
     let mut visited: BTreeSet<PathBuf> = BTreeSet::new();
+    // Kraty Rusta wciągnięte przez zależności `file:` na artefakty budowania.
+    let mut rust: BTreeSet<PathBuf> = BTreeSet::new();
     let mut queue: Vec<PathBuf> = vec![canonical(app_dir)?];
 
     while let Some(dir) = queue.pop() {
@@ -285,25 +295,46 @@ fn node_closure(
                     queue.push(target.clone());
                 } else if let Some(rel) = version.strip_prefix("file:") {
                     let resolved = normalize(&dir.join(rel));
-                    if produced.iter().any(|p| normalize(p) == resolved) {
-                        continue;
+                    // Kolejność ma znaczenie: krata-producent SPRAWDZANA
+                    // PIERWSZA, zanim spytamy o istnienie katalogu. `pkg`
+                    // wasm-packa bywa na dysku po dawnym buildzie, a wynik
+                    // grafu nie może zależeć od tego, co ktoś kiedyś zbudował.
+                    if let Some(crate_dir) = producing_crate(root, &resolved) {
+                        rust.extend(rust_closure(root, &crate_dir)?);
+                    } else {
+                        let canonical =
+                            resolved.canonicalize().map_err(|_| GraphError::DeadPath {
+                                manifest: manifest_path.clone(),
+                                reference: format!("{name} -> file:{rel}"),
+                                resolved,
+                            })?;
+                        queue.push(canonical);
                     }
-                    let canonical =
-                        resolved.canonicalize().map_err(|_| GraphError::DeadPath {
-                            manifest: manifest_path.clone(),
-                            reference: format!("{name} -> file:{rel}"),
-                            resolved,
-                        })?;
-                    queue.push(canonical);
                 }
             }
         }
     }
 
+    visited.extend(rust);
     Ok(visited
         .into_iter()
         .filter(|d| d.starts_with(root))
         .collect())
+}
+
+/// Najbliższa krata NAD katalogiem — zależność `file:` wskazująca w głąb
+/// kraty Rusta jest artefaktem jej budowania (`pkg` wasm-packa), nie paczką.
+fn producing_crate(root: &Path, missing: &Path) -> Option<PathBuf> {
+    let mut candidate = missing.parent()?;
+    // Zatrzymujemy się PRZED korzeniem: on też ma Cargo.toml (workspace),
+    // więc bez tego warunku każda zależność `file:` wyglądałaby na artefakt.
+    while candidate != root && candidate.starts_with(root) {
+        if candidate.join("Cargo.toml").is_file() {
+            return Some(candidate.to_path_buf());
+        }
+        candidate = candidate.parent()?;
+    }
+    None
 }
 
 /// Package-name -> dir map of the root pnpm workspace.

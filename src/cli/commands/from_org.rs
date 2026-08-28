@@ -116,7 +116,6 @@ pub fn execute(
         includes: None,
         remote: None,
         repositories,
-        images: Vec::new(),
     };
 
     let toml_content = toml::to_string_pretty(&config)?;

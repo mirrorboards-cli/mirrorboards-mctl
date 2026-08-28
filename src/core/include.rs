@@ -2,7 +2,6 @@
 
 use crate::core::config::RawMirrorConfig;
 use crate::core::error::{ConfigError, ConfigResult};
-use crate::core::image::ImageSpec;
 use crate::core::repository::Repository;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -12,8 +11,6 @@ use std::path::{Path, PathBuf};
 pub struct ResolvedConfig {
     /// All repositories from all included files
     pub repositories: Vec<RepositoryWithSource>,
-    /// All image declarations from all included files
-    pub images: Vec<ImageSpec>,
     /// All source files that were processed
     pub source_files: Vec<PathBuf>,
 }
@@ -33,8 +30,6 @@ pub struct IncludeResolver {
     processed_files: HashSet<PathBuf>,
     /// All collected repositories
     repositories: Vec<RepositoryWithSource>,
-    /// All collected image declarations
-    images: Vec<ImageSpec>,
 }
 
 impl IncludeResolver {
@@ -43,7 +38,6 @@ impl IncludeResolver {
             processing_stack: Vec::new(),
             processed_files: HashSet::new(),
             repositories: Vec::new(),
-            images: Vec::new(),
         }
     }
 
@@ -56,7 +50,6 @@ impl IncludeResolver {
         resolver.check_duplicates()?;
 
         Ok(ResolvedConfig {
-            images: resolver.images,
             repositories: resolver.repositories,
             source_files: resolver.processed_files.into_iter().collect(),
         })
@@ -122,10 +115,6 @@ impl IncludeResolver {
                 source_file: canonical_path.clone(),
             });
         }
-
-        // Deklaracje obrazów zbierane tak samo jak repozytoria — obraz żyje
-        // w manifeście rodziny, która go posiada.
-        self.images.extend(raw_config.images);
 
         // Pop from stack and mark as processed
         self.processing_stack.pop();

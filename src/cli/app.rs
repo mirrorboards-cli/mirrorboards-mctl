@@ -97,59 +97,21 @@ pub enum Commands {
     /// Validate the configuration file
     Validate,
 
-    /// Clone exactly the repositories an image's closure needs
+    /// Clone exactly the repositories a directory's closure needs
     Hydrate {
-        /// Image name
-        image: String,
+        /// Workspace-relative directory (e.g. applications/…/xbooks-api)
+        dir: String,
     },
 
-    /// List declared images ([[images]] across manifests)
-    Images,
-
-    /// Print an image's dependency closure computed from the workspace
+    /// Print a directory's dependency closure computed from the workspace
     Graph {
-        /// Image name
-        image: String,
+        /// Directory to analyse; defaults to the current one
+        #[arg(default_value = ".")]
+        dir: String,
 
         /// Output format: table (default) or json
         #[arg(short, long, default_value = "table")]
         format: String,
-    },
-
-    /// Assemble an image's build context into a directory
-    Context {
-        /// Image name
-        image: String,
-
-        /// Output directory (wiped and recreated)
-        #[arg(short, long)]
-        out: std::path::PathBuf,
-    },
-
-    /// Build an image from the workspace (assembles the context first)
-    Build {
-        /// Image name
-        image: String,
-
-        /// Image tag
-        #[arg(short, long, default_value = "dev")]
-        tag: String,
-
-        /// Push to the registry
-        #[arg(long)]
-        push: bool,
-
-        /// Load into the local docker daemon
-        #[arg(long)]
-        load: bool,
-
-        /// Do not write the build cache (no registry push rights)
-        #[arg(long)]
-        no_cache_store: bool,
-
-        /// Keep the assembled context in this directory
-        #[arg(long)]
-        keep_context: Option<std::path::PathBuf>,
     },
 
     /// Pull latest changes in all repositories
