@@ -31,6 +31,7 @@ pub enum ForgeError {
 
 const RUST_BIN_TEMPLATE: &str = include_str!("../../templates/rust-bin.Dockerfile");
 const NODE_TSX_TEMPLATE: &str = include_str!("../../templates/node-tsx.Dockerfile");
+const VITE_STATIC_TEMPLATE: &str = include_str!("../../templates/vite-static.Dockerfile");
 
 /// Dirs never copied into a context: VCS metadata and build products.
 const EXCLUDED_DIRS: &[&str] = &[".git", "target", "node_modules", "dist", ".github-images"];
@@ -67,6 +68,14 @@ pub fn assemble_context(
     match spec.kind {
         ImageKind::RustBin => generate_rust_root(root, graph, out_dir)?,
         ImageKind::NodeTsx => generate_node_root(root, graph, out_dir)?,
+        // Front potrzebuje OBU korzeni: pnpm dla paczek i Cargo dla krat,
+        // z których wasm-pack robi moduły.
+        ImageKind::ViteStatic => {
+            generate_node_root(root, graph, out_dir)?;
+            if !spec.wasm.is_empty() {
+                generate_rust_root(root, graph, out_dir)?;
+            }
+        }
     }
 
     // 3. Rendered Dockerfile — values baked in, no build args to drift.
@@ -150,7 +159,13 @@ fn generate_rust_root(
     let mut members = Vec::new();
     let mut excludes = Vec::new();
     for unit in &graph.units {
-        let unit_manifest = read_toml(&root.join(unit).join("Cargo.toml"))?;
+        // W obrazie mieszanym (vite-static) większość jednostek to paczki
+        // Node — do workspace'u Rusta wchodzą tylko te z manifestem.
+        let unit_manifest_path = root.join(unit).join("Cargo.toml");
+        if !unit_manifest_path.is_file() {
+            continue;
+        }
+        let unit_manifest = read_toml(&unit_manifest_path)?;
         let own_workspace = unit_manifest.get("workspace");
         let empty_marker = own_workspace
             .and_then(|w| w.as_table())
@@ -255,6 +270,7 @@ fn render_dockerfile(spec: &ImageSpec) -> String {
     let template = match spec.kind {
         ImageKind::RustBin => RUST_BIN_TEMPLATE,
         ImageKind::NodeTsx => NODE_TSX_TEMPLATE,
+        ImageKind::ViteStatic => VITE_STATIC_TEMPLATE,
     };
     let cmd_json = serde_json::to_string(&spec.command()).expect("cmd serializes");
     let env_lines: String = spec
@@ -262,7 +278,51 @@ fn render_dockerfile(spec: &ImageSpec) -> String {
         .iter()
         .map(|e| format!("ENV {}={}\n", e.name, e.value))
         .collect();
+    // Etapy WASM: jeden blok build + jeden COPY do etapu JS na sztukę.
+    let wasm_stages: String = spec
+        .wasm
+        .iter()
+        .enumerate()
+        .map(|(index, stage)| {
+            format!(
+                "FROM wasm AS wasm{index}\nWORKDIR /workspace/{}\nRUN wasm-pack build --target web --release --out-dir /out --out-name {}\n\n",
+                stage.crate_dir, stage.out_name
+            )
+        })
+        .collect();
+    let wasm_copies: String = spec
+        .wasm
+        .iter()
+        .enumerate()
+        .map(|(index, stage)| {
+            format!(
+                "COPY --from=wasm{index} /out /workspace/{}\n",
+                stage.out_dir
+            )
+        })
+        .collect();
+    // Vite WKLEJA `import.meta.env.PUBLIC_*` w buildzie, więc te wartości
+    // muszą stać w środowisku etapu budowania — ustawienie ich w kontenerze
+    // nie ma żadnego skutku.
+    let public_lines: String = spec
+        .public
+        .iter()
+        .map(|e| format!("ENV {}={}\n", e.name, e.value))
+        .collect();
+    let runtime_copies: String = spec
+        .runtime_files
+        .iter()
+        .map(|f| {
+            let name = f.rsplit('/').next().unwrap_or(f);
+            format!("COPY --from=builder /workspace/{}/{f} /app/{name}\n", spec.app)
+        })
+        .collect();
+
     template
+        .replace("{{WASM_STAGES}}", &wasm_stages)
+        .replace("{{WASM_COPIES}}", &wasm_copies)
+        .replace("{{PUBLIC_LINES}}", &public_lines)
+        .replace("{{RUNTIME_COPIES}}", &runtime_copies)
         .replace("{{APP_DIR}}", &spec.app)
         .replace("{{BIN}}", spec.bin_name())
         .replace("{{PORT}}", &spec.port.to_string())

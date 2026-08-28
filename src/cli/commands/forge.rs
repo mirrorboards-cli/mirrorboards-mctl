@@ -164,6 +164,9 @@ fn load_config(config_path: &Path) -> Result<Loaded> {
             bin: None,
             cmd: None,
             env: Vec::new(),
+            wasm: Vec::new(),
+            public: Vec::new(),
+            runtime_files: Vec::new(),
         });
     Ok((root, config, placeholder))
 }

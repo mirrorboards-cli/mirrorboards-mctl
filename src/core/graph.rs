@@ -70,6 +70,23 @@ pub fn image_graph(
     let units = match spec.kind {
         ImageKind::RustBin => rust_closure(root, &app_dir)?,
         ImageKind::NodeTsx => node_closure(root, &app_dir)?,
+        // Front z etapami WASM ma DWA domknięcia: paczki JS i kraty Rusta,
+        // z których powstają moduły importowane przez JS.
+        ImageKind::ViteStatic => {
+            let mut units = node_closure(root, &app_dir)?;
+            for stage in &spec.wasm {
+                let crate_dir = root.join(&stage.crate_dir);
+                if !crate_dir.is_dir() {
+                    return Err(GraphError::DeadPath {
+                        manifest: PathBuf::from("[[images.wasm]]"),
+                        reference: stage.crate_dir.clone(),
+                        resolved: crate_dir,
+                    });
+                }
+                units.extend(rust_closure(root, &crate_dir)?);
+            }
+            units
+        }
     };
 
     let mut rel_units = BTreeSet::new();

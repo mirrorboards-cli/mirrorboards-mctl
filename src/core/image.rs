@@ -16,6 +16,9 @@ pub enum ImageKind {
     RustBin,
     /// Node process executed by tsx straight from TypeScript — no build step.
     NodeTsx,
+    /// Static SPA: optional wasm-pack stages, `pnpm build`, then a
+    /// single-binary file server over the built `dist`.
+    ViteStatic,
 }
 
 impl std::fmt::Display for ImageKind {
@@ -23,6 +26,7 @@ impl std::fmt::Display for ImageKind {
         match self {
             ImageKind::RustBin => write!(f, "rust-bin"),
             ImageKind::NodeTsx => write!(f, "node-tsx"),
+            ImageKind::ViteStatic => write!(f, "vite-static"),
         }
     }
 }
@@ -58,6 +62,34 @@ pub struct ImageSpec {
     /// Extra environment baked into the image (non-secret only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<EnvVar>,
+
+    /// vite-static: wasm-pack stages run before the JS build. Their crates
+    /// join the image's closure, so a change in a wasm crate rebuilds only
+    /// that stage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wasm: Vec<WasmStage>,
+
+    /// vite-static: values inlined into the bundle at BUILD time
+    /// (`import.meta.env.PUBLIC_*`). Setting them in the container has no
+    /// effect — the built file already carries the constant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub public: Vec<EnvVar>,
+
+    /// vite-static: extra files copied into the runtime image next to the
+    /// build output, relative to the app dir (e.g. a server config).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_files: Vec<String>,
+}
+
+/// One `wasm-pack build` invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WasmStage {
+    /// Workspace-relative crate dir.
+    pub crate_dir: String,
+    /// Workspace-relative output dir (where the JS side imports it from).
+    pub out_dir: String,
+    /// `--out-name`.
+    pub out_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
