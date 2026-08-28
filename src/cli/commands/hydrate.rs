@@ -11,6 +11,7 @@
 
 use crate::cli::commands::{print_error, print_success};
 use crate::core::config::MirrorConfig;
+use crate::core::error::ConfigError;
 use crate::core::graph::{image_graph, GraphError};
 use crate::core::image::ImageSpec;
 use crate::core::repository::Repository;
@@ -25,8 +26,8 @@ use std::path::{Path, PathBuf};
 const MAX_ROUNDS: usize = 12;
 
 pub fn execute(config_path: &Path, image: &str) -> Result<()> {
-    let config = MirrorConfig::load(config_path)
-        .with_context(|| format!("nie można wczytać {}", config_path.display()))?;
+    let git_bootstrap = GitClient::new();
+    let config = load_with_bootstrap(config_path, &git_bootstrap)?;
     let root = config
         .config_path
         .canonicalize()?
@@ -112,6 +113,34 @@ pub fn execute(config_path: &Path, image: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Wczytuje konfigurację, dociągając po drodze repozytoria z manifestami.
+///
+/// Na świeżym runnerze `mirror.toml` korzenia wskazuje na manifesty rodzin,
+/// których repozytorium jeszcze nie ma — tak samo jak przy `mctl sync`,
+/// który ma na to własny bootstrap. Klonujemy repozytoria zadeklarowane
+/// WPROST w pliku korzenia i ponawiamy wczytanie.
+fn load_with_bootstrap(config_path: &Path, git: &GitClient) -> Result<MirrorConfig> {
+    match MirrorConfig::load(config_path) {
+        Ok(config) => Ok(config),
+        Err(ConfigError::IncludeNotFound { .. }) => {
+            let raw = MirrorConfig::load_raw(config_path)
+                .with_context(|| format!("nie można wczytać {}", config_path.display()))?;
+            let root = config_path
+                .canonicalize()?
+                .parent()
+                .ok_or_else(|| anyhow!("plik konfiguracyjny nie ma katalogu nadrzędnego"))?
+                .to_path_buf();
+            let mut cloned = BTreeSet::new();
+            for repo in &raw.repositories {
+                ensure_cloned(git, &root, repo, &mut cloned)?;
+            }
+            MirrorConfig::load(config_path)
+                .with_context(|| format!("nie można wczytać {}", config_path.display()))
+        }
+        Err(e) => Err(anyhow!("nie można wczytać {}: {e}", config_path.display())),
+    }
 }
 
 /// Klonuje repozytorium wskazane przez BŁĄD grafu.
