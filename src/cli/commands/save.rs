@@ -108,7 +108,7 @@ pub fn execute(
         }
 
         // Check if we only need to push (no uncommitted changes but have unpushed commits)
-        let only_push = status.is_clean() && status.has_unpushed_commits();
+        let mut only_push = status.is_clean() && status.has_unpushed_commits();
 
         // Create spinner
         let pb = ProgressBar::new_spinner();
@@ -158,8 +158,34 @@ pub fn execute(
                 continue;
             }
 
-            // Commit
-            if let Err(e) = git.commit(&local_path, message) {
+            // Dirty submodule working trees cannot be staged in their parent.
+            // Keep those changes and still push any existing parent commits.
+            let staged = match git.diff_staged(&local_path) {
+                Ok(diff) => !diff.is_empty(),
+                Err(e) => {
+                    pb.finish_and_clear();
+                    print_error(&format!(
+                        "{}: Failed to inspect staged changes: {}",
+                        repo.path, e
+                    ));
+                    error_count += 1;
+                    continue;
+                }
+            };
+            if !staged {
+                pb.finish_and_clear();
+                println!(
+                    "{} {} - no stageable changes; save changes inside submodules separately",
+                    "!".yellow(),
+                    repo.path
+                );
+                if !status.has_unpushed_commits() {
+                    pb.finish_and_clear();
+                    skip_count += 1;
+                    continue;
+                }
+                only_push = true;
+            } else if let Err(e) = git.commit(&local_path, message) {
                 pb.finish_and_clear();
                 println!("{} {} - failed to commit: {}", "✗".red(), repo.path, e);
                 error_count += 1;
