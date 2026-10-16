@@ -44,11 +44,7 @@ pub fn execute(
             .filter(|r| !r.readonly)
             .collect()
     } else {
-        config
-            .repositories
-            .iter()
-            .filter(|r| !r.readonly)
-            .collect()
+        config.repositories.iter().filter(|r| !r.readonly).collect()
     };
 
     if repos.is_empty() {
@@ -182,8 +178,8 @@ pub fn execute(
             .with_widths(vec![
                 Constraint::Percentage(25),
                 Constraint::Percentage(12),
-                Constraint::Percentage(13),
-                Constraint::Percentage(50),
+                Constraint::Percentage(16),
+                Constraint::Percentage(47),
             ]);
 
         let rows: Vec<TableRow> = filtered
@@ -261,7 +257,7 @@ fn sync_cell(status: &RepositoryStatus) -> CellStyle {
         status.branch.ahead,
         status.branch.behind,
     ) {
-        (None, _, _) => CellStyle::dimmed("local"),
+        (None, _, _) => CellStyle::warning("No upstream"),
         (Some(_), 0, 0) => CellStyle::success("Synced"),
         (Some(_), ahead, 0) => CellStyle::warning(format!("↑{}", ahead)),
         (Some(_), 0, behind) => CellStyle::warning(format!("↓{}", behind)),
@@ -354,6 +350,12 @@ fn print_detailed_status_cached(
                     status.branch.ahead,
                     status.branch.behind
                 );
+            }
+
+            if status.branch.is_detached() {
+                println!("  {}: {}", "Sync".cyan(), "Detached HEAD".yellow());
+            } else if status.branch.upstream.is_none() {
+                println!("  {}: {}", "Sync".cyan(), "No upstream".yellow());
             }
 
             if status.is_clean() {

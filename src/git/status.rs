@@ -121,7 +121,7 @@ impl BranchInfo {
 
     /// Check if this is a detached HEAD state.
     pub fn is_detached(&self) -> bool {
-        self.name == "HEAD" || self.name.starts_with("(HEAD detached")
+        self.name == "HEAD" || self.name == "(detached)" || self.name.starts_with("(HEAD detached")
     }
 }
 
@@ -184,9 +184,9 @@ impl RepositoryStatus {
         self.branch.upstream.is_some() && self.branch.ahead > 0
     }
 
-    /// Check if the repository is fully synced (clean and no unpushed commits).
+    /// Check if the working tree is clean and the branch matches its upstream.
     pub fn is_fully_synced(&self) -> bool {
-        self.is_clean() && !self.has_unpushed_commits()
+        self.is_clean() && self.branch.is_synced()
     }
 
     /// Get a summary string.

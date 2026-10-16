@@ -98,8 +98,11 @@ pub fn execute(
             }
         };
 
-        // Skip if fully synced (no changes and no unpushed commits)
-        if status.is_fully_synced() {
+        let needs_initial_push = status.branch.upstream.is_none() && !status.branch.is_detached();
+        let needs_push = status.has_unpushed_commits() || needs_initial_push;
+
+        // A branch that is only behind needs a pull, not another commit or push.
+        if status.is_clean() && !needs_push {
             if verbose {
                 print_info(&format!("{}: No changes, skipping", repo.path));
             }
@@ -108,7 +111,12 @@ pub fn execute(
         }
 
         // Check if we only need to push (no uncommitted changes but have unpushed commits)
-        let mut only_push = status.is_clean() && status.has_unpushed_commits();
+        let mut only_push = status.is_clean();
+        let push_description = if needs_initial_push {
+            format!("branch {} (no upstream)", status.branch.name)
+        } else {
+            format!("{} commit(s)", status.branch.ahead)
+        };
 
         // Create spinner
         let pb = ProgressBar::new_spinner();
@@ -120,10 +128,7 @@ pub fn execute(
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         if only_push {
-            pb.set_message(format!(
-                "{}: Pushing {} commit(s)...",
-                repo.path, status.branch.ahead
-            ));
+            pb.set_message(format!("{}: Pushing {}...", repo.path, push_description));
         } else {
             pb.set_message(format!("{}: Saving...", repo.path));
         }
@@ -132,10 +137,10 @@ pub fn execute(
             pb.finish_and_clear();
             if only_push {
                 println!(
-                    "{} {} - would push {} commit(s)",
+                    "{} {} - would push {}",
                     "→".blue(),
                     repo.path,
-                    status.branch.ahead
+                    push_description
                 );
             } else {
                 println!(
@@ -179,7 +184,7 @@ pub fn execute(
                     "!".yellow(),
                     repo.path
                 );
-                if !status.has_unpushed_commits() {
+                if !needs_push {
                     pb.finish_and_clear();
                     skip_count += 1;
                     continue;
@@ -207,10 +212,10 @@ pub fn execute(
             Ok(_) => {
                 if only_push {
                     println!(
-                        "{} {} - pushed {} commit(s)",
+                        "{} {} - pushed {}",
                         "✓".green(),
                         repo.path,
-                        status.branch.ahead
+                        push_description
                     );
                 } else {
                     println!("{} {} - saved and pushed", "✓".green(), repo.path);
@@ -228,8 +233,7 @@ pub fn execute(
                         repo.path,
                         e
                     );
-                    // Still count as partial success
-                    saved_count += 1;
+                    error_count += 1;
                 }
             }
         }
@@ -256,6 +260,10 @@ pub fn execute(
         } else {
             print_success(&format!("Save complete: {}", summary_parts.join(", ")));
         }
+    }
+
+    if error_count > 0 {
+        anyhow::bail!("Failed to save {} repositories", error_count);
     }
 
     Ok(())

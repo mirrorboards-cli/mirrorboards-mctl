@@ -36,7 +36,13 @@ fn save_pushes_current_branch_and_sets_upstream_when_missing(
         .output()?;
     assert!(!upstream_before.status.success());
 
-    mctl::cli::commands::save::execute("mirror.toml", None, "save test", false, false)?;
+    mctl::cli::commands::save::execute(
+        workspace.join("mirror.toml").to_str().unwrap(),
+        None,
+        "save test",
+        false,
+        false,
+    )?;
 
     let upstream = git_output(
         &workspace,

@@ -218,3 +218,5 @@ tego, co ktoś kiedyś lokalnie zbudował.
 W odróżnieniu od reszty mctl. Znalezisko, które nie wywraca wywołania,
 przechodzi niezauważone — a od połykania błędów zaczęło się gnicie
 kontekstów obrazów.
+
+Status compares branches with locally cached upstream references; run pull or fetch to refresh them. A clean working tree without an upstream is shown as `No upstream`, not synced. Save retries publishing such branches, and reports push failures with a nonzero exit code even when the local commit succeeded.
