@@ -101,12 +101,16 @@ pub fn execute(
                     dirty_repos.len()
                 )
             } else {
-                format!("Dirty repositories in {}: {}", ws.cyan(), dirty_repos.len())
+                format!(
+                    "Repositories needing attention in {}: {}",
+                    ws.cyan(),
+                    dirty_repos.len()
+                )
             }
         } else if all {
             format!("All repositories ({})", dirty_repos.len())
         } else {
-            format!("Dirty repositories ({})", dirty_repos.len())
+            format!("Repositories needing attention ({})", dirty_repos.len())
         };
         println!("{}", header.bold());
         println!();
@@ -165,15 +169,15 @@ pub fn execute(
             if all {
                 format!(" Status: {} ({} repositories) ", ws, filtered.len())
             } else {
-                format!(" Dirty: {} ({}) ", ws, filtered.len())
+                format!(" Needs attention: {} ({}) ", ws, filtered.len())
             }
         } else if all {
             format!(" Repository Status ({}) ", filtered.len())
         } else {
-            format!(" Dirty Repositories ({}) ", filtered.len())
+            format!(" Repositories needing attention ({}) ", filtered.len())
         };
 
-        let table_config = TableConfig::new(vec!["Path", "Branch", "Sync", "Files"])
+        let table_config = TableConfig::new(vec!["Path", "Branch", "Commits", "Files"])
             .with_title(title)
             .with_widths(vec![
                 Constraint::Percentage(25),
@@ -258,10 +262,10 @@ fn sync_cell(status: &RepositoryStatus) -> CellStyle {
         status.branch.behind,
     ) {
         (None, _, _) => CellStyle::warning("No upstream"),
-        (Some(_), 0, 0) => CellStyle::success("Synced"),
-        (Some(_), ahead, 0) => CellStyle::warning(format!("↑{}", ahead)),
-        (Some(_), 0, behind) => CellStyle::warning(format!("↓{}", behind)),
-        (Some(_), ahead, behind) => CellStyle::warning(format!("↑{} ↓{}", ahead, behind)),
+        (Some(_), 0, 0) => CellStyle::success("Up to date"),
+        (Some(_), ahead, 0) => CellStyle::warning(format!("Push {}", ahead)),
+        (Some(_), 0, behind) => CellStyle::warning(format!("Pull {}", behind)),
+        (Some(_), ahead, behind) => CellStyle::warning(format!("Push {} / Pull {}", ahead, behind)),
     }
 }
 
@@ -483,7 +487,7 @@ mod tests {
         };
 
         match sync_cell(&status) {
-            CellStyle::Warning(text) => assert_eq!(text, "↑2 ↓3"),
+            CellStyle::Warning(text) => assert_eq!(text, "Push 2 / Pull 3"),
             other => panic!(
                 "expected warning cell, got {:?}",
                 std::mem::discriminant(&other)

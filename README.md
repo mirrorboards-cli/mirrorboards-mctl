@@ -219,4 +219,6 @@ W odróżnieniu od reszty mctl. Znalezisko, które nie wywraca wywołania,
 przechodzi niezauważone — a od połykania błędów zaczęło się gnicie
 kontekstów obrazów.
 
+Status lists repositories needing attention: local file changes, unpublished commits, missing upstreams, and incoming commits. The `Commits` column describes branch history independently of the `Files` column: `Up to date` can appear alongside uncommitted files, `Push` means outgoing commits, and `Pull` means incoming commits. Save commits and pushes local work; it does not pull incoming commits.
+
 Status compares branches with locally cached upstream references; run pull or fetch to refresh them. A clean working tree without an upstream is shown as `No upstream`, not synced. Save retries publishing such branches, and reports push failures with a nonzero exit code even when the local commit succeeded.
