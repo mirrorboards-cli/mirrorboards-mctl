@@ -45,6 +45,13 @@ pub fn execute(config_path: &str) -> Result<()> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
+    // A configuration that uses workspaces at all should name one for every repository;
+    // one that uses none (the production mirror) gets no warning per repository.
+    let uses_workspaces = config
+        .repositories
+        .iter()
+        .any(|repo| !repo.workspaces.is_empty());
+
     for repo in &config.repositories {
         // Validation
         if let Err(msg) = repo.validate() {
@@ -52,7 +59,7 @@ pub fn execute(config_path: &str) -> Result<()> {
         }
 
         // Warnings
-        if repo.workspaces.is_empty() {
+        if uses_workspaces && repo.workspaces.is_empty() {
             warnings.push(format!("{}: No workspaces assigned", repo.path));
         }
     }
