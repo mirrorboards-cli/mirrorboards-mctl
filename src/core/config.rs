@@ -5,7 +5,8 @@ use crate::core::include::IncludeResolver;
 use crate::core::repository::Repository;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value};
 
 /// Default configuration file name.
 pub const DEFAULT_CONFIG_FILE: &str = "mirror.toml";
@@ -133,13 +134,6 @@ impl MirrorConfig {
         Ok(config)
     }
 
-    /// Save the raw configuration to a file.
-    pub fn save_raw(config: &RawMirrorConfig, path: &Path) -> ConfigResult<()> {
-        let content = toml::to_string_pretty(config)?;
-        std::fs::write(path, content)?;
-        Ok(())
-    }
-
     /// Filter repositories by workspace.
     pub fn filter_by_workspace(&self, workspace: &str) -> Vec<&Repository> {
         self.repositories
@@ -181,24 +175,34 @@ impl MirrorConfig {
     }
 }
 
-/// Configuration manager for editing configs.
+/// Edits one configuration file in place.
+///
+/// Edits go through `toml_edit`, so comments, blank lines and the order of
+/// sections survive; only the entries an operation touches change.
 pub struct ConfigManager {
     path: PathBuf,
-    config: RawMirrorConfig,
+    document: DocumentMut,
 }
 
 impl ConfigManager {
-    /// Open a configuration file for editing.
+    /// Open a configuration file for editing. A missing file starts empty.
     pub fn open(path: &Path) -> ConfigResult<Self> {
-        let config = if path.exists() {
-            MirrorConfig::load_raw(path)?
+        let content = if path.exists() {
+            std::fs::read_to_string(path)?
         } else {
-            RawMirrorConfig::default()
+            String::new()
         };
+
+        // Refuse to edit a file that does not follow the configuration schema.
+        toml::from_str::<RawMirrorConfig>(&content).map_err(|error| ConfigError::ParseError {
+            message: format!("{}: {}", path.display(), error),
+        })?;
+
+        let document = content.parse::<DocumentMut>()?;
 
         Ok(Self {
             path: path.to_path_buf(),
-            config,
+            document,
         })
     }
 
@@ -212,81 +216,218 @@ impl ConfigManager {
 
         Ok(Self {
             path: path.to_path_buf(),
-            config: RawMirrorConfig::default(),
+            document: DocumentMut::new(),
         })
     }
 
     /// Add a repository to the configuration.
     pub fn add_repository(&mut self, repo: Repository) -> ConfigResult<()> {
-        // Check for duplicate path
-        if self.config.repositories.iter().any(|r| r.path == repo.path) {
+        repo.validate()
+            .map_err(|msg| ConfigError::ValidationError { message: msg })?;
+
+        let path_taken = self
+            .raw_config()?
+            .repositories
+            .iter()
+            .any(|r| r.path == repo.path);
+        if path_taken {
             return Err(ConfigError::DuplicatePath {
                 path: repo.path.clone(),
             });
         }
 
-        repo.validate()
-            .map_err(|msg| ConfigError::ValidationError { message: msg })?;
+        let entry = toml_edit::ser::to_document(&repo)?;
+        self.repositories_mut()?.push(entry.as_table().clone());
 
-        self.config.repositories.push(repo);
         Ok(())
     }
 
     /// Remove a repository by path.
+    ///
+    /// Comment lines directly above the entry go with it. Text separated from
+    /// the entry by a blank line, such as the description at the top of an
+    /// include file, describes the file and stays in it.
     pub fn remove_repository(&mut self, path: &str) -> ConfigResult<Repository> {
-        let index = self
-            .config
+        let repository = self
+            .raw_config()?
             .repositories
-            .iter()
-            .position(|r| r.path == path)
+            .into_iter()
+            .find(|r| r.path == path)
             .ok_or_else(|| ConfigError::ValidationError {
                 message: format!("Repository not found: {}", path),
             })?;
 
-        Ok(self.config.repositories.remove(index))
+        let repositories = self.repositories_mut()?;
+        let index = repositories
+            .iter()
+            .position(|table| table.get("path").and_then(|value| value.as_str()) == Some(path))
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("Repository not found: {}", path),
+            })?;
+
+        let removed_prefix = leading_text(repositories.get(index));
+        let file_text = text_describing_the_file(&removed_prefix).to_string();
+        repositories.remove(index);
+
+        if file_text.is_empty() {
+            return Ok(repository);
+        }
+
+        // The entry that followed the removed one now sits at the same index.
+        let next_entry = repositories.get_mut(index);
+        match next_entry {
+            Some(next) => {
+                let next_prefix = leading_text(Some(next));
+                next.decor_mut().set_prefix(file_text + &next_prefix);
+            }
+            None => {
+                let trailing = self.document.trailing().as_str().unwrap_or("");
+                let new_trailing = file_text + trailing;
+                self.document.set_trailing(new_trailing);
+            }
+        }
+
+        Ok(repository)
     }
 
     /// Set remote configuration.
-    pub fn set_remote(&mut self, remote: RemoteConfig) {
-        self.config.remote = Some(remote);
+    pub fn set_remote(&mut self, remote: RemoteConfig) -> ConfigResult<()> {
+        let table = toml_edit::ser::to_document(&remote)?;
+        self.document["remote"] = Item::Table(table.as_table().clone());
+
+        Ok(())
     }
 
-    /// Remove remote configuration.
-    pub fn remove_remote(&mut self) {
-        self.config.remote = None;
-    }
+    /// Register an include file in `[includes].paths`.
+    ///
+    /// Returns `false` when the configuration already includes that file,
+    /// under any spelling of the same path.
+    pub fn add_include(&mut self, include_path: &str) -> ConfigResult<bool> {
+        let new_file = without_current_dir(include_path);
 
-    /// Add an include path.
-    pub fn add_include(&mut self, path: String) {
-        if !self.config.include.contains(&path) {
-            self.config.include.push(path);
+        let already_included = self
+            .raw_config()?
+            .get_includes()
+            .iter()
+            .any(|existing| without_current_dir(existing) == new_file);
+        if already_included {
+            return Ok(false);
         }
-    }
 
-    /// Remove an include path.
-    pub fn remove_include(&mut self, path: &str) -> bool {
-        if let Some(index) = self.config.include.iter().position(|p| p == path) {
-            self.config.include.remove(index);
-            true
-        } else {
-            false
+        let file_name = self.path.display().to_string();
+        let includes = self
+            .document
+            .entry("includes")
+            .or_insert(Item::Table(Table::new()))
+            .as_table_mut()
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("{}: includes must be a [includes] table", file_name),
+            })?;
+        let paths = includes
+            .entry("paths")
+            .or_insert(toml_edit::value(Array::new()))
+            .as_array_mut()
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("{}: includes.paths must be an array", file_name),
+            })?;
+
+        // A new entry copies the layout of the first one, so a list written
+        // one path per line stays that way.
+        let mut entry = Value::from(include_path);
+        if let Some(first) = paths.iter().next() {
+            *entry.decor_mut() = first.decor().clone();
         }
+        paths.push_formatted(entry);
+
+        Ok(true)
     }
 
     /// Save the configuration to disk.
     pub fn save(&self) -> ConfigResult<()> {
-        MirrorConfig::save_raw(&self.config, &self.path)
+        // A file opened as missing may also be the first one in its directory.
+        if let Some(directory) = self.path.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+
+        std::fs::write(&self.path, self.document.to_string())?;
+        Ok(())
     }
 
-    /// Get a reference to the raw config.
-    pub fn config(&self) -> &RawMirrorConfig {
-        &self.config
+    /// The configuration as it stands after the edits so far.
+    fn raw_config(&self) -> ConfigResult<RawMirrorConfig> {
+        let config = toml::from_str(&self.document.to_string())?;
+        Ok(config)
     }
 
-    /// Get a mutable reference to the raw config.
-    pub fn config_mut(&mut self) -> &mut RawMirrorConfig {
-        &mut self.config
+    fn repositories_mut(&mut self) -> ConfigResult<&mut ArrayOfTables> {
+        let file_name = self.path.display().to_string();
+
+        self.document
+            .entry("repositories")
+            .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
+            .as_array_of_tables_mut()
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!(
+                    "{}: repositories must be [[repositories]] tables",
+                    file_name
+                ),
+            })
     }
+}
+
+/// The text of a file between the previous entry and this table's header.
+fn leading_text(table: Option<&Table>) -> String {
+    let prefix = table.and_then(|table| table.decor().prefix());
+    let text = prefix.and_then(|raw| raw.as_str()).unwrap_or("");
+
+    text.to_string()
+}
+
+/// The part of the text above an entry that is separated from it by a blank
+/// line; what remains below the last blank line describes the entry itself.
+fn text_describing_the_file(leading_text: &str) -> &str {
+    match leading_text.rfind("\n\n") {
+        Some(blank_line) => &leading_text[..blank_line + 1],
+        None => "",
+    }
+}
+
+/// An include path without `.` components, so `./a.toml` and `a.toml` match.
+fn without_current_dir(include_path: &str) -> PathBuf {
+    Path::new(include_path)
+        .components()
+        .filter(|component| *component != Component::CurDir)
+        .collect()
+}
+
+/// Find a configuration in a parent directory that includes `config_path`.
+///
+/// Repository paths in an included file are relative to the configuration
+/// that includes it, so commands given only the included file would read and
+/// write repositories in the wrong place. A parent configuration that does
+/// not resolve is skipped: it cannot say anything about this file.
+pub fn find_including_config(config_path: &Path) -> Option<PathBuf> {
+    let config_file = config_path.canonicalize().ok()?;
+    let config_dir = config_file.parent()?;
+
+    for directory in config_dir.ancestors() {
+        let candidate = directory.join(DEFAULT_CONFIG_FILE);
+
+        let is_other_config = candidate.exists() && candidate != config_file;
+        if !is_other_config {
+            continue;
+        }
+
+        let Ok(resolved) = IncludeResolver::resolve(&candidate) else {
+            continue;
+        };
+
+        if resolved.source_files.contains(&config_file) {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 /// Create a snapshot configuration from a list of repositories.

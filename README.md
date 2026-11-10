@@ -29,10 +29,12 @@ mctl init
 # Adding repositories
 mctl add git@github.com:org/repo.git --workspace api
 mctl add git@github.com:org/lib.git --workspace api --workspace core
+mctl add git@github.com:org/app.git --path apps/org/app --include ./mirrors/apps/org.toml
 
 # Synchronization
 mctl sync                    # all
 mctl sync api                # only the api workspace
+mctl sync --path apps/org/app  # only one repository
 mctl sync --create-missing-branches  # if the configured branch doesn't exist remotely, create it from the default one
 
 # Status
@@ -85,12 +87,12 @@ workspaces = ["external"]
 | Command | Description |
 |---------|-------------|
 | `mctl init` | Initialize a new configuration |
-| `mctl add <url>` | Add a repository |
+| `mctl add <url>` | Add a repository; `--include <file>` writes it to an include file and lists that file in `[includes]` |
 | `mctl list [workspace]` | List repositories |
-| `mctl remove <path>` | Remove a repository |
+| `mctl remove <path>` | Remove a repository from whichever file defines it |
 | `mctl show <path>` | Repository details |
 | `mctl validate` | Validate the configuration |
-| `mctl sync [workspace]` | Synchronization (clone/pull); `--create-missing-branches` creates the branch from the default one when the configured branch doesn't exist remotely |
+| `mctl sync [workspace]` | Synchronization (clone/pull); `--path <path>` syncs one repository; `--create-missing-branches` creates the branch from the default one when the configured branch doesn't exist remotely |
 | `mctl status [workspace]` | Repository status |
 | `mctl diff [workspace]` | Diff of changes |
 | `mctl save [workspace]` | Commit and push changes |
@@ -133,6 +135,29 @@ paths = [
     "teams/backend.toml",
 ]
 ```
+
+Repository paths in an included file are relative to the configuration that
+includes it, not to the included file. Always run mctl against the including
+configuration: given an included file as `--config`, mctl stops and names the
+configuration to use instead.
+
+Manage included files through mctl as well:
+
+```bash
+# Write the entry to teams/backend.toml (created if missing) and list the file in [includes]
+mctl add git@github.com:org/api.git --path backend/api --include ./teams/backend.toml
+
+# Remove the entry from whichever file defines it
+mctl remove backend/api
+
+# Clone just that repository
+mctl sync --path backend/api
+```
+
+`add` and `remove` edit files in place: comments, blank lines and the order of
+sections stay as they were. Comment lines directly above a `[[repositories]]`
+entry belong to it and are removed with it; text separated from the entry by a
+blank line, such as the description at the top of a file, stays.
 
 ## Remote Config
 

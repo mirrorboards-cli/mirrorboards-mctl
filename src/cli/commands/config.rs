@@ -30,7 +30,7 @@ pub fn init_remote(config_path: &str, git_url: &str, branch: &str, remote_path: 
         path: remote_path.to_string(),
     };
 
-    manager.set_remote(remote);
+    manager.set_remote(remote)?;
     manager.save()?;
 
     print_success("Remote config initialized");

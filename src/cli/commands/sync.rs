@@ -5,7 +5,7 @@ use crate::core::config::MirrorConfig;
 use crate::core::error::ConfigError;
 use crate::core::repository::Repository;
 use crate::git::GitClient;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
@@ -13,6 +13,7 @@ use std::path::Path;
 pub fn execute(
     config_path: &str,
     workspace: Option<String>,
+    repository_path: Option<String>,
     dry_run: bool,
     _force: bool,
     create_missing_branches: bool,
@@ -36,7 +37,15 @@ pub fn execute(
     let config = load_sync_config(config_file, &git, dry_run, create_missing_branches)?;
 
     // Filter repositories
-    let repos: Vec<&Repository> = if let Some(ws) = &workspace {
+    let repos: Vec<&Repository> = if let Some(path) = &repository_path {
+        // Shell completion leaves a trailing slash on directory names.
+        let path = path.trim_end_matches('/');
+
+        let Some(repo) = config.find_by_path(path) else {
+            bail!("No repository with path {} in {}", path, config_path);
+        };
+        vec![repo]
+    } else if let Some(ws) = &workspace {
         config.filter_by_workspace(ws)
     } else {
         config.repositories.iter().collect()
@@ -52,7 +61,9 @@ pub fn execute(
     }
 
     // Print header
-    if let Some(ws) = &workspace {
+    if let Some(path) = &repository_path {
+        println!("{} {}", "Syncing repository:".bold(), path.cyan());
+    } else if let Some(ws) = &workspace {
         println!(
             "{} {} ({} repositories)",
             "Syncing workspace:".bold(),

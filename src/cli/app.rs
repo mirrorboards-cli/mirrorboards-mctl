@@ -66,6 +66,10 @@ pub enum Commands {
         /// Skip push operations for this repository
         #[arg(long)]
         skip_push: bool,
+
+        /// Write the entry to this include file (relative to the configuration; created if missing) and list it in [includes]
+        #[arg(long)]
+        include: Option<String>,
     },
 
     /// List repositories in the configuration
@@ -124,6 +128,10 @@ pub enum Commands {
     Sync {
         /// Filter by workspace
         workspace: Option<String>,
+
+        /// Sync only the repository with this path
+        #[arg(long, conflicts_with = "workspace")]
+        path: Option<String>,
 
         /// Dry run - show what would be done
         #[arg(long)]

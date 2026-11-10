@@ -12,7 +12,9 @@ pub mod repository;
 pub mod url;
 
 // Re-exports for convenience
-pub use config::{ConfigManager, MirrorConfig, RawMirrorConfig, RemoteConfig};
+pub use config::{
+    find_including_config, ConfigManager, MirrorConfig, RawMirrorConfig, RemoteConfig,
+};
 pub use error::{ConfigError, ConfigResult, GitError, GitResult, UrlError, UrlResult};
 pub use graph::{closure, Closure, Language};
 pub use hash::{generate_repo_hash, generate_short_hash};

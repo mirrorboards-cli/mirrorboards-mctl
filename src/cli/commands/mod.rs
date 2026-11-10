@@ -18,14 +18,24 @@ pub mod sync;
 pub mod validate;
 
 use crate::cli::app::{Cli, Commands, ConfigCommands};
-use anyhow::Result;
+use crate::core::config::find_including_config;
+use anyhow::{bail, Result};
 use colored::Colorize;
+use std::path::Path;
 
 /// Execute the CLI command.
 pub fn execute(cli: Cli) -> Result<()> {
     // Disable colors if requested
     if cli.no_color {
         colored::control::set_override(false);
+    }
+
+    let reads_configuration = !matches!(
+        cli.command,
+        Commands::Init { .. } | Commands::FromOrg { .. }
+    );
+    if reads_configuration {
+        ensure_not_included(Path::new(&cli.config))?;
     }
 
     match cli.command {
@@ -38,15 +48,19 @@ pub fn execute(cli: Cli) -> Result<()> {
             tag,
             workspace,
             skip_push,
+            include,
         } => add::execute(
             &cli.config,
-            git,
-            path,
-            branch,
-            rev,
-            tag,
-            workspace,
-            skip_push,
+            add::AddOptions {
+                git,
+                path,
+                branch,
+                rev,
+                tag,
+                workspaces: workspace,
+                skip_push,
+                include,
+            },
         ),
         Commands::List { workspace, format } => list::execute(&cli.config, workspace, &format),
         Commands::Hydrate { dir } => hydrate::execute(std::path::Path::new(&cli.config), &dir),
@@ -59,12 +73,14 @@ pub fn execute(cli: Cli) -> Result<()> {
         Commands::Pull { workspace } => pull::execute(&cli.config, workspace),
         Commands::Sync {
             workspace,
+            path,
             dry_run,
             force,
             create_missing_branches,
         } => sync::execute(
             &cli.config,
             workspace,
+            path,
             dry_run,
             force,
             create_missing_branches,
@@ -112,6 +128,25 @@ pub fn execute(cli: Cli) -> Result<()> {
             ConfigCommands::Diff => config::diff(&cli.config),
         },
     }
+}
+
+/// Stop when the configuration given is an include of another one.
+///
+/// Repository paths in an included file are relative to the configuration
+/// that includes it, so running against the include alone would clone and
+/// look for repositories in the wrong directory.
+fn ensure_not_included(config_path: &Path) -> Result<()> {
+    let Some(including_config) = find_including_config(config_path) else {
+        return Ok(());
+    };
+
+    bail!(
+        "{} is included by {}, and the paths in it are relative to that file. \
+         Run mctl with --config {} (to add a repository to the included file: mctl add <git> --include <file>)",
+        config_path.display(),
+        including_config.display(),
+        including_config.display()
+    );
 }
 
 /// Print success message.

@@ -100,6 +100,18 @@ pub enum ConfigError {
         #[from]
         source: toml::ser::Error,
     },
+
+    #[error("TOML edit error: {source}")]
+    TomlEditError {
+        #[from]
+        source: toml_edit::TomlError,
+    },
+
+    #[error("TOML serialization error: {source}")]
+    TomlEditSerError {
+        #[from]
+        source: toml_edit::ser::Error,
+    },
 }
 
 /// URL parsing errors
