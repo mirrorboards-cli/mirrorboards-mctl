@@ -241,6 +241,111 @@ path = "group/second"
     Ok(())
 }
 
+#[test]
+fn removing_the_last_entry_of_an_include_deletes_the_file_and_its_listing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    let added = mctl(
+        root,
+        &[
+            "add",
+            "git@github.com:org/application.git",
+            "--path",
+            "applications/org/application",
+            "--include",
+            "./mirrors/applications/org.toml",
+        ],
+    )?;
+    assert_success(&added, "mctl add --include");
+
+    let removed = mctl(root, &["remove", "applications/org/application"])?;
+    assert_success(&removed, "mctl remove");
+
+    assert_eq!(fs::read_to_string(root.join("mirror.toml"))?, ROOT_CONFIG);
+    assert!(!root.join("mirrors/applications/org.toml").exists());
+
+    Ok(())
+}
+
+#[test]
+fn removing_the_first_entry_leaves_no_blank_line_at_the_top_of_the_file(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    for (git, repo_path) in [
+        ("git@github.com:org/first.git", "group/first"),
+        ("git@github.com:org/second.git", "group/second"),
+    ] {
+        let added = mctl(
+            root,
+            &[
+                "add",
+                git,
+                "--path",
+                repo_path,
+                "--include",
+                "./mirrors/group.toml",
+            ],
+        )?;
+        assert_success(&added, "mctl add --include");
+    }
+
+    let removed = mctl(root, &["remove", "group/first"])?;
+    assert_success(&removed, "mctl remove");
+
+    let expected_include = r#"[[repositories]]
+git = "git@github.com:org/second.git"
+path = "group/second"
+"#;
+    assert_eq!(
+        fs::read_to_string(root.join("mirrors/group.toml"))?,
+        expected_include
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_with_delete_also_removes_the_directories_it_leaves_empty(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    let added = mctl(
+        root,
+        &[
+            "add",
+            "git@github.com:org/application.git",
+            "--path",
+            "applications/org/application",
+            "--include",
+            "./mirrors/applications/org.toml",
+        ],
+    )?;
+    assert_success(&added, "mctl add --include");
+    fs::create_dir_all(root.join("applications/org/application"))?;
+    fs::write(root.join("applications/org/application/README.md"), "app\n")?;
+    fs::write(root.join("applications/notes.md"), "kept\n")?;
+
+    let removed = mctl(
+        root,
+        &["remove", "applications/org/application", "--delete"],
+    )?;
+    assert_success(&removed, "mctl remove --delete");
+
+    // applications/org held only the checkout; applications/ still holds a file.
+    assert!(!root.join("applications/org").exists());
+    assert!(root.join("applications/notes.md").exists());
+
+    Ok(())
+}
+
 fn write_mirror(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(root.join("mirrors"))?;
     fs::write(root.join("mirror.toml"), ROOT_CONFIG)?;

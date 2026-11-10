@@ -270,6 +270,9 @@ impl ConfigManager {
         repositories.remove(index);
 
         if file_text.is_empty() {
+            if index == 0 {
+                self.drop_blank_lines_at_the_top()?;
+            }
             return Ok(repository);
         }
 
@@ -288,6 +291,45 @@ impl ConfigManager {
         }
 
         Ok(repository)
+    }
+
+    /// Whether the file holds nothing at all: no entries, no includes, no text.
+    pub fn is_empty(&self) -> bool {
+        self.document.to_string().trim().is_empty()
+    }
+
+    /// Drop `include_file` from `[includes].paths`.
+    ///
+    /// Returns `false` when this configuration does not list that file there,
+    /// under any spelling of its path.
+    pub fn remove_include(&mut self, include_file: &Path) -> ConfigResult<bool> {
+        let target = include_file.canonicalize()?;
+        let base_dir = self.path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+        let paths = self
+            .document
+            .get_mut("includes")
+            .and_then(Item::as_table_mut)
+            .and_then(|includes| includes.get_mut("paths"))
+            .and_then(Item::as_array_mut);
+        let Some(paths) = paths else {
+            return Ok(false);
+        };
+
+        let position = paths.iter().position(|listed| {
+            let Some(listed_path) = listed.as_str() else {
+                return false;
+            };
+
+            let listed_file = base_dir.join(without_current_dir(listed_path));
+            listed_file.canonicalize().ok().as_ref() == Some(&target)
+        });
+        let Some(index) = position else {
+            return Ok(false);
+        };
+
+        paths.remove(index);
+        Ok(true)
     }
 
     /// Set remote configuration.
@@ -350,6 +392,23 @@ impl ConfigManager {
         }
 
         std::fs::write(&self.path, self.document.to_string())?;
+        Ok(())
+    }
+
+    /// Removing the first entry leaves the blank line that separated it from the
+    /// next one at the top of the file; the file starts with its text instead.
+    fn drop_blank_lines_at_the_top(&mut self) -> ConfigResult<()> {
+        let starts_with_blank_line = self.document.to_string().starts_with('\n');
+        if !starts_with_blank_line {
+            return Ok(());
+        }
+
+        if let Some(first) = self.repositories_mut()?.get_mut(0) {
+            let prefix = leading_text(Some(first));
+            let without_blank_lines = prefix.trim_start_matches('\n').to_string();
+            first.decor_mut().set_prefix(without_blank_lines);
+        }
+
         Ok(())
     }
 
