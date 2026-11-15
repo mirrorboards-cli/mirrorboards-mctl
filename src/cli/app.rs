@@ -92,6 +92,15 @@ pub enum Commands {
         delete: bool,
     },
 
+    /// Point a repository at a new git URL, in its file and in its checkout's origin
+    SetUrl {
+        /// Path of the repository
+        path: String,
+
+        /// New git URL of the repository
+        git: String,
+    },
+
     /// Show details of a repository
     Show {
         /// Path of the repository to show

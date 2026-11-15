@@ -3,14 +3,15 @@
 pub mod add;
 pub mod config;
 pub mod diff;
-pub mod graph;
 pub mod from_org;
+pub mod graph;
 pub mod hydrate;
 pub mod init;
 pub mod list;
 pub mod pull;
 pub mod remove;
 pub mod save;
+pub mod set_url;
 pub mod show;
 pub mod snapshot;
 pub mod status;
@@ -68,6 +69,7 @@ pub fn execute(cli: Cli) -> Result<()> {
             graph::execute(std::path::Path::new(&cli.config), &dir, &format)
         }
         Commands::Remove { path, delete } => remove::execute(&cli.config, &path, delete),
+        Commands::SetUrl { path, git } => set_url::execute(&cli.config, &path, &git),
         Commands::Show { path } => show::execute(&cli.config, &path),
         Commands::Validate => validate::execute(&cli.config),
         Commands::Pull { workspace } => pull::execute(&cli.config, workspace),

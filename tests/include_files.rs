@@ -413,3 +413,52 @@ fn run_git(path: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>>
     )
     .into())
 }
+
+#[test]
+fn set_url_changes_the_entry_in_its_include_and_the_origin_of_the_checkout(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    let checkout = root.join("group/library");
+    init_git_repo(&checkout)?;
+    run_git(
+        &checkout,
+        &["remote", "add", "origin", "git@github.com:org/library.git"],
+    )?;
+
+    let output = mctl(
+        root,
+        &[
+            "set-url",
+            "group/library",
+            "git@github.com:org-legacy/library.git",
+        ],
+    )?;
+    assert_success(&output, "mctl set-url");
+
+    let expected_include = r#"# Libraries shared by every application.
+
+# The library everything else builds on.
+[[repositories]]
+git = "git@github.com:org-legacy/library.git"
+path = "group/library"
+"#;
+    assert_eq!(
+        fs::read_to_string(root.join("mirrors/existing.toml"))?,
+        expected_include
+    );
+    assert_eq!(fs::read_to_string(root.join("mirror.toml"))?, ROOT_CONFIG);
+
+    let origin = StdCommand::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&checkout)
+        .output()?;
+    assert_eq!(
+        String::from_utf8_lossy(&origin.stdout).trim(),
+        "git@github.com:org-legacy/library.git"
+    );
+
+    Ok(())
+}

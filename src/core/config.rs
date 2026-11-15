@@ -293,6 +293,39 @@ impl ConfigManager {
         Ok(repository)
     }
 
+    /// Point the repository at `path` to a new git URL and return the URL it
+    /// had. Only the value of `git` changes; the rest of the entry, with its
+    /// comments, stays as written.
+    pub fn set_repository_git(&mut self, path: &str, git: &str) -> ConfigResult<String> {
+        let repositories = self.repositories_mut()?;
+        let entry = repositories
+            .iter_mut()
+            .find(|table| table.get("path").and_then(|value| value.as_str()) == Some(path))
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("Repository not found: {}", path),
+            })?;
+
+        let previous_git = entry
+            .get("git")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Assigning through the value keeps the spacing and comment around it.
+        match entry.get_mut("git").and_then(|item| item.as_value_mut()) {
+            Some(value) => {
+                let decor = value.decor().clone();
+                *value = git.into();
+                *value.decor_mut() = decor;
+            }
+            None => {
+                entry["git"] = toml_edit::value(git);
+            }
+        }
+
+        Ok(previous_git)
+    }
+
     /// Whether the file holds nothing at all: no entries, no includes, no text.
     pub fn is_empty(&self) -> bool {
         self.document.to_string().trim().is_empty()

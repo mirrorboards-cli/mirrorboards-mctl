@@ -90,6 +90,7 @@ workspaces = ["external"]
 | `mctl add <url>` | Add a repository; `--include <file>` writes it to an include file and lists that file in `[includes]` |
 | `mctl list [workspace]` | List repositories |
 | `mctl remove <path>` | Remove a repository from whichever file defines it |
+| `mctl set-url <path> <url>` | Point a repository at a new git URL in whichever file defines it and in the `origin` of its checkout |
 | `mctl show <path>` | Repository details |
 | `mctl validate` | Validate the configuration |
 | `mctl sync [workspace]` | Synchronization (clone/pull); `--path <path>` syncs one repository; `--create-missing-branches` creates the branch from the default one when the configured branch doesn't exist remotely |
@@ -152,6 +153,9 @@ mctl remove backend/api
 
 # Clone just that repository
 mctl sync --path backend/api
+
+# After the organization is renamed on GitHub: new URL, checkout stays in place
+mctl set-url backend/api git@github.com:org-legacy/api.git
 ```
 
 `add` and `remove` edit files in place: comments, blank lines and the order of

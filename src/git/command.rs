@@ -95,11 +95,7 @@ impl GitCommand {
     }
 
     /// Add an option only if value is Some.
-    pub fn option_opt(
-        self,
-        opt: impl Into<String>,
-        value: Option<impl Into<String>>,
-    ) -> Self {
+    pub fn option_opt(self, opt: impl Into<String>, value: Option<impl Into<String>>) -> Self {
         match value {
             Some(v) => self.option(opt, v),
             None => self,
@@ -258,6 +254,15 @@ impl GitCommand {
             .work_dir(repo_path)
             .arg("get-url")
             .arg(remote)
+    }
+
+    /// Create a remote set-url command.
+    pub fn set_remote_url(repo_path: &Path, remote: &str, url: &str) -> Self {
+        Self::new("remote")
+            .work_dir(repo_path)
+            .arg("set-url")
+            .arg(remote)
+            .arg(url)
     }
 
     /// Create a log command.

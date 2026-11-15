@@ -524,6 +524,14 @@ impl GitClient {
         Ok(output.trim().to_string())
     }
 
+    /// Point a remote of the checkout at a new URL.
+    pub fn set_remote_url(&self, repo_path: &Path, remote: &str, url: &str) -> GitResult<()> {
+        self.ensure_git_repo(repo_path)?;
+        let cmd = self.apply_config(GitCommand::set_remote_url(repo_path, remote, url));
+        self.run_command(cmd)?;
+        Ok(())
+    }
+
     /// Sync a repository to match a version spec.
     pub fn sync(&self, repo_path: &Path, version: &VersionSpec) -> GitResult<()> {
         self.ensure_git_repo(repo_path)?;
