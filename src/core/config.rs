@@ -326,6 +326,34 @@ impl ConfigManager {
         Ok(previous_git)
     }
 
+    /// Pin the repository at `path` to the commit `rev` and return the commit
+    /// it was pinned to before. Only the value of `rev` changes; the rest of
+    /// the entry, with its comments, stays as written.
+    pub fn set_repository_rev(&mut self, path: &str, rev: &str) -> ConfigResult<String> {
+        let repositories = self.repositories_mut()?;
+        let entry = repositories
+            .iter_mut()
+            .find(|table| table.get("path").and_then(|value| value.as_str()) == Some(path))
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("Repository not found: {}", path),
+            })?;
+
+        let Some(value) = entry.get_mut("rev").and_then(|item| item.as_value_mut()) else {
+            return Err(ConfigError::ValidationError {
+                message: format!("Repository {} is not pinned to a rev", path),
+            });
+        };
+
+        let previous_rev = value.as_str().unwrap_or("").to_string();
+
+        // Assigning through the value keeps the spacing and comment around it.
+        let decor = value.decor().clone();
+        *value = rev.into();
+        *value.decor_mut() = decor;
+
+        Ok(previous_rev)
+    }
+
     /// Whether the file holds nothing at all: no entries, no includes, no text.
     pub fn is_empty(&self) -> bool {
         self.document.to_string().trim().is_empty()

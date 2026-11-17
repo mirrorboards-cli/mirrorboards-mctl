@@ -101,6 +101,16 @@ pub enum Commands {
         git: String,
     },
 
+    /// Pin repositories to the commits their checkouts in a workspace have (before a release)
+    Pin {
+        /// Workspace whose checkouts give the commits, e.g. the mirror root
+        #[arg(long)]
+        from: String,
+
+        /// Paths of the repositories to pin; every pinned repository when none
+        paths: Vec<String>,
+    },
+
     /// Show details of a repository
     Show {
         /// Path of the repository to show
