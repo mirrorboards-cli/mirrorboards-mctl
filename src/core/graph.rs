@@ -194,6 +194,30 @@ fn rust_closure(root: &Path, app_dir: &Path) -> Result<BTreeSet<PathBuf>, GraphE
         for dep_path in path_dependencies(&manifest, inside_app) {
             push_resolved(&dir, &dep_path, &manifest_path, &mut queue)?;
         }
+
+        // `name = { workspace = true }` takes its path from the workspace root's
+        // `[workspace.dependencies]`, relative to that root.
+        let inherited = inherited_dependencies(&manifest, inside_app);
+        if !inherited.is_empty() {
+            if let Some(workspace_dir) = workspace_root(&dir, &manifest)? {
+                let workspace_manifest_path = workspace_dir.join("Cargo.toml");
+                let workspace_manifest = read_toml(&workspace_manifest_path)?;
+                let declared = workspace_manifest
+                    .get("workspace")
+                    .and_then(|w| w.get("dependencies"))
+                    .and_then(|d| d.as_table());
+
+                for name in inherited {
+                    let path = declared
+                        .and_then(|table| table.get(&name))
+                        .and_then(|dep| dep.get("path"))
+                        .and_then(|p| p.as_str());
+                    if let Some(path) = path {
+                        push_resolved(&workspace_dir, path, &workspace_manifest_path, &mut queue)?;
+                    }
+                }
+            }
+        }
     }
 
     // Keep only dirs under the workspace root; the app dir stays too.
@@ -240,6 +264,50 @@ fn path_dependencies(manifest: &toml::Value, include_dev: bool) -> Vec<String> {
         }
     }
     out
+}
+
+/// Names of the dependencies a manifest inherits from its workspace (`workspace = true`).
+fn inherited_dependencies(manifest: &toml::Value, include_dev: bool) -> Vec<String> {
+    let mut keys = vec!["dependencies", "build-dependencies"];
+    if include_dev {
+        keys.push("dev-dependencies");
+    }
+
+    let mut out = Vec::new();
+    for key in keys {
+        if let Some(table) = manifest.get(key).and_then(|s| s.as_table()) {
+            for (name, dep) in table {
+                if dep.get("workspace").and_then(|w| w.as_bool()) == Some(true) {
+                    out.push(name.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The directory of the manifest's workspace root: `package.workspace` when the manifest names
+/// one, else the nearest directory from `dir` upwards whose `Cargo.toml` has a `[workspace]`.
+fn workspace_root(dir: &Path, manifest: &toml::Value) -> Result<Option<PathBuf>, GraphError> {
+    if let Some(explicit) = manifest
+        .get("package")
+        .and_then(|p| p.get("workspace"))
+        .and_then(|w| w.as_str())
+    {
+        return Ok(Some(canonical(&dir.join(explicit))?));
+    }
+
+    for ancestor in dir.ancestors() {
+        let candidate = ancestor.join("Cargo.toml");
+        if !candidate.is_file() {
+            continue;
+        }
+        if read_toml(&candidate)?.get("workspace").is_some() {
+            return Ok(Some(ancestor.to_path_buf()));
+        }
+    }
+
+    Ok(None)
 }
 
 fn push_resolved(
