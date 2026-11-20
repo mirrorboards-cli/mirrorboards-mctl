@@ -8,6 +8,7 @@ pub mod graph;
 pub mod hydrate;
 pub mod init;
 pub mod list;
+pub mod move_repository;
 pub mod pin;
 pub mod pull;
 pub mod remove;
@@ -71,6 +72,10 @@ pub fn execute(cli: Cli) -> Result<()> {
         }
         Commands::Remove { path, delete } => remove::execute(&cli.config, &path, delete),
         Commands::SetUrl { path, git } => set_url::execute(&cli.config, &path, &git),
+        Commands::Move { path, to, include } => move_repository::execute(
+            &cli.config,
+            move_repository::MoveOptions { path, to, include },
+        ),
         Commands::Pin { from, paths } => pin::execute(&cli.config, &from, &paths),
         Commands::Show { path } => show::execute(&cli.config, &path),
         Commands::Validate => validate::execute(&cli.config),

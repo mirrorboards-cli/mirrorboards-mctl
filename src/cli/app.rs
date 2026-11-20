@@ -92,6 +92,20 @@ pub enum Commands {
         delete: bool,
     },
 
+    /// Move a repository to a new path, its entry and its checkout, e.g. into vendors-legacy
+    Move {
+        /// Path of the repository now
+        path: String,
+
+        /// New path of the repository
+        to: String,
+
+        /// Include file that receives the entry (e.g. ./mirrors/vendors-legacy/org.toml); the
+        /// entry stays in its own file when none is given
+        #[arg(long)]
+        include: Option<String>,
+    },
+
     /// Point a repository at a new git URL, in its file and in its checkout's origin
     SetUrl {
         /// Path of the repository

@@ -90,6 +90,7 @@ workspaces = ["external"]
 | `mctl add <url>` | Add a repository; `--include <file>` writes it to an include file and lists that file in `[includes]` |
 | `mctl list [workspace]` | List repositories |
 | `mctl remove <path>` | Remove a repository from whichever file defines it |
+| `mctl move <path> <new path> [--include <file>]` | Move a repository's checkout and entry to a new path, into another include file when given |
 | `mctl set-url <path> <url>` | Point a repository at a new git URL in whichever file defines it and in the `origin` of its checkout |
 | `mctl pin --from <workspace> [path…]` | Set `rev` of pinned repositories to the HEAD of their checkouts in a workspace; every checkout must be clean and level with its upstream after a fetch, or nothing changes |
 | `mctl show <path>` | Repository details |
@@ -154,6 +155,9 @@ mctl remove backend/api
 
 # Clone just that repository
 mctl sync --path backend/api
+
+# Retire a repository: its checkout, with its history and uncommitted work, and its entry move
+mctl move backend/old-api vendors-legacy/org/old-api --include ./mirrors/vendors-legacy/org.toml
 
 # After the organization is renamed on GitHub: new URL, checkout stays in place
 mctl set-url backend/api git@github.com:org-legacy/api.git

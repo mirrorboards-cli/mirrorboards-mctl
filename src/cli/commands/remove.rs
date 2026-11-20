@@ -64,7 +64,7 @@ pub fn execute(config_path: &str, repo_path: &str, delete_local: bool) -> Result
 /// configuration that lists it under `[includes].paths`. A file referred to
 /// some other way is kept, emptied, since deleting it would break that
 /// configuration.
-fn drop_include_file(
+pub(crate) fn drop_include_file(
     resolved: &ResolvedConfig,
     include_file: &Path,
     emptied: &ConfigManager,
@@ -94,7 +94,7 @@ fn drop_include_file(
 /// Remove the directories above a deleted checkout that it leaves empty, up to
 /// the directory of the configuration: `applications/org/` goes with the last
 /// repository under it.
-fn remove_directories_left_empty(local_path: &Path, config_file: &Path) -> Result<()> {
+pub(crate) fn remove_directories_left_empty(local_path: &Path, config_file: &Path) -> Result<()> {
     let config_file = config_file.canonicalize()?;
     let Some(mirror_root) = config_file.parent() else {
         return Ok(());

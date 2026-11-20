@@ -462,3 +462,92 @@ path = "group/library"
 
     Ok(())
 }
+
+#[test]
+fn move_into_another_include_takes_the_checkout_and_the_entry_along(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+    init_git_repo(&root.join("group/library"))?;
+    fs::write(root.join("group/library/work.txt"), "not committed yet\n")?;
+
+    let output = mctl(
+        root,
+        &[
+            "move",
+            "group/library",
+            "vendors-legacy/org/library",
+            "--include",
+            "./mirrors/vendors-legacy/org.toml",
+        ],
+    )?;
+    assert_success(&output, "mctl move");
+
+    let moved = root.join("vendors-legacy/org/library");
+    assert!(moved.join(".git").exists());
+    assert_eq!(
+        fs::read_to_string(moved.join("work.txt"))?,
+        "not committed yet\n"
+    );
+    assert!(
+        !root.join("group").exists(),
+        "the emptied group directory stays"
+    );
+
+    let target = fs::read_to_string(root.join("mirrors/vendors-legacy/org.toml"))?;
+    assert!(target.contains("path = \"vendors-legacy/org/library\""));
+    assert!(target.contains("git = \"git@github.com:org/library.git\""));
+    // The file keeps its description, as after `mctl remove`, and loses the entry.
+    let source = fs::read_to_string(root.join("mirrors/existing.toml"))?;
+    assert!(source.starts_with("# Libraries shared by every application."));
+    assert!(!source.contains("group/library"));
+
+    let config = fs::read_to_string(root.join("mirror.toml"))?;
+    assert!(config.contains("./mirrors/vendors-legacy/org.toml"));
+
+    Ok(())
+}
+
+#[test]
+fn move_within_its_file_changes_only_the_path() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    let output = mctl(root, &["move", "group/library", "group/core-library"])?;
+    assert_success(&output, "mctl move");
+
+    let include = fs::read_to_string(root.join("mirrors/existing.toml"))?;
+    assert_eq!(
+        include,
+        EXISTING_INCLUDE.replace("path = \"group/library\"", "path = \"group/core-library\"")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn move_refuses_a_path_that_is_taken() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+    init_git_repo(&root.join("group/library"))?;
+    fs::create_dir_all(root.join("elsewhere/library"))?;
+
+    let mirrored = mctl(root, &["move", "group/library", "."])?;
+    let on_disk = mctl(root, &["move", "group/library", "elsewhere/library"])?;
+
+    assert!(!mirrored.status.success());
+    assert!(String::from_utf8_lossy(&mirrored.stderr).contains("already mirrored"));
+    assert!(!on_disk.status.success());
+    assert!(String::from_utf8_lossy(&on_disk.stderr).contains("already exists on disk"));
+    assert!(
+        root.join("group/library/.git").exists(),
+        "the checkout stays where it was"
+    );
+    let include = fs::read_to_string(root.join("mirrors/existing.toml"))?;
+    assert!(include.contains("path = \"group/library\""));
+
+    Ok(())
+}

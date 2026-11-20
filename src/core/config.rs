@@ -326,6 +326,27 @@ impl ConfigManager {
         Ok(previous_git)
     }
 
+    /// Give the repository at `path` the new path `to`. Only the value of `path` changes; the rest
+    /// of the entry, with its comments, stays as written.
+    pub fn set_repository_path(&mut self, path: &str, to: &str) -> ConfigResult<()> {
+        let repositories = self.repositories_mut()?;
+        let entry = repositories
+            .iter_mut()
+            .find(|table| table.get("path").and_then(|value| value.as_str()) == Some(path))
+            .ok_or_else(|| ConfigError::ValidationError {
+                message: format!("Repository not found: {}", path),
+            })?;
+
+        // Assigning through the value keeps the spacing and comment around it.
+        if let Some(value) = entry.get_mut("path").and_then(|item| item.as_value_mut()) {
+            let decor = value.decor().clone();
+            *value = to.into();
+            *value.decor_mut() = decor;
+        }
+
+        Ok(())
+    }
+
     /// Pin the repository at `path` to the commit `rev` and return the commit
     /// it was pinned to before. Only the value of `rev` changes; the rest of
     /// the entry, with its comments, stays as written.
