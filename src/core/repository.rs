@@ -185,10 +185,14 @@ impl Repository {
         if repo_path.is_absolute() {
             repo_path.to_path_buf()
         } else {
-            config_path
+            // `mirror.toml` given without a directory has the empty path as its parent, which
+            // names no directory; the current one is meant.
+            let config_directory = config_path
                 .parent()
-                .unwrap_or(Path::new("."))
-                .join(repo_path)
+                .filter(|directory| !directory.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+
+            config_directory.join(repo_path)
         }
     }
 

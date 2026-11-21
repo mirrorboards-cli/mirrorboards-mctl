@@ -346,6 +346,37 @@ fn remove_with_delete_also_removes_the_directories_it_leaves_empty(
     Ok(())
 }
 
+#[test]
+fn remove_with_delete_of_a_checkout_at_the_mirror_root_succeeds(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let root = temp_dir.path();
+    write_mirror(root)?;
+
+    let added = mctl(
+        root,
+        &[
+            "add",
+            "git@github.com:org/example.git",
+            "--path",
+            "example",
+            "--include",
+            "./mirrors/existing.toml",
+        ],
+    )?;
+    assert_success(&added, "mctl add --include");
+    fs::create_dir_all(root.join("example"))?;
+    fs::write(root.join("example/README.md"), "example\n")?;
+
+    let removed = mctl(root, &["remove", "example", "--delete"])?;
+    assert_success(&removed, "mctl remove --delete");
+
+    assert!(!root.join("example").exists());
+    assert!(root.join("mirror.toml").exists());
+
+    Ok(())
+}
+
 fn write_mirror(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(root.join("mirrors"))?;
     fs::write(root.join("mirror.toml"), ROOT_CONFIG)?;
